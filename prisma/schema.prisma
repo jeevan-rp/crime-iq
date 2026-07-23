@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,20 +7,84 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Fir {
+  id          String   @id @default(cuid())
+  firNumber   String
+  date        DateTime
+  district    String
+  station     String
+  crimeType   String
+  description String
+  status      String   @default("Open")
+  severity    String   @default("Medium")
+  latitude    Float
+  longitude   Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  suspects Suspect[]
+  victims  Victim[]
 }
 
-model Post {
+model Person {
+  id      String  @id @default(cuid())
+  name    String
+  age     Int?
+  address String?
+  phone   String?
+  aadhaar String?
+
+  suspectOf Suspect[]
+  victimOf  Victim[]
+  linksFrom  Link[] @relation("SourceLinks")
+  linksTo    Link[] @relation("TargetLinks")
+}
+
+model Suspect {
+  id       String @id @default(cuid())
+  firId    String
+  personId String
+
+  fir    Fir    @relation(fields: [firId], references: [id])
+  person Person @relation(fields: [personId], references: [id])
+}
+
+model Victim {
+  id       String @id @default(cuid())
+  firId    String
+  personId String
+
+  fir    Fir    @relation(fields: [firId], references: [id])
+  person Person @relation(fields: [personId], references: [id])
+}
+
+model Link {
   id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
+  sourceId  String
+  targetId  String
+  relation  String
+  strength  Float    @default(1.0)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  source Person @relation("SourceLinks", fields: [sourceId], references: [id])
+  target Person @relation("TargetLinks", fields: [targetId], references: [id])
+}
+
+model Station {
+  id        String  @id @default(cuid())
+  name      String
+  district  String
+  latitude  Float
+  longitude Float
+  officers  Int     @default(10)
+}
+
+model Prediction {
+  id        String   @id @default(cuid())
+  district  String
+  crimeType String
+  riskScore Float
+  factors   String
+  month     String
+  createdAt DateTime @default(now())
 }
