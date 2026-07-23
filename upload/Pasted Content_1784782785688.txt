@@ -1,0 +1,2586 @@
+# AI Crime Intelligence Platform — MongoDB Edition
+
+## Karnataka Police FIR System
+
+---
+
+# High-Level Architecture
+
+```text
+                   ┌─────────────────┐
+                   │ Web Dashboard   │
+                   │ React/Next.js   │
+                   └────────┬────────┘
+                            │
+                            ▼
+                 ┌─────────────────────┐
+                 │ FastAPI Backend      │
+                 │ API Gateway          │
+                 └─────────┬───────────┘
+                           │
+      ┌────────────────────┼────────────────────┐
+      ▼                    ▼                    ▼
+
+┌────────────┐   ┌─────────────────┐   ┌──────────────┐
+│ MongoDB    │   │ Neo4j Graph DB  │   │ Vector DB    │
+│ Atlas      │   │ Networks         │   │ Semantic RAG │
+│ FIR Data   │   │ Relationships    │   │ Qdrant       │
+└────────────┘   └─────────────────┘   └──────────────┘
+
+      ▼                    ▼                    ▼
+
+┌──────────────────────────────────────────────┐
+│ AI Intelligence Layer                         │
+├──────────────────────────────────────────────┤
+│ Gemini 2.5 Pro                               │
+│ Entity Resolution                            │
+│ Crime Similarity Search                      │
+│ Hotspot Detection                            │
+│ Risk Prediction                              │
+│ Explainable AI                               │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+# Why MongoDB Over PostgreSQL
+
+| Factor | PostgreSQL | MongoDB |
+|--------|-----------|---------|
+| Schema Flexibility | Rigid tables | Dynamic documents |
+| FIR Structure | 15+ JOINs per query | Single document read |
+| Nested Data (victims, accused, acts) | Separate tables + JOINs | Embedded arrays |
+| Varying Fields Per Crime Type | NULL columns everywhere | Only store what exists |
+| Evolution | ALTER TABLE migrations | Add fields organically |
+| Geographic Queries | PostGIS (good) | GeoJSON native (great) |
+| Aggregation Pipeline | SQL GROUP BY | Powerful aggregation framework |
+| JSON Export | Manual casting | Native BSON/JSON |
+
+**Key Insight**: An FIR is inherently a **document** — it contains nested arrays of victims, accused, act-sections, arrests. MongoDB's document model maps this naturally without 15-way JOINs.
+
+---
+
+# MongoDB Database Design
+
+## Design Philosophy
+
+```text
+Embedding Strategy:
+├── Transactional data WITH the case document
+│   ├── victims[]
+│   ├── accused[]
+│   ├── complainants[]
+│   ├── actSections[]
+│   ├── arrestSurrenders[]
+│   └── chargesheet
+│
+Referencing Strategy:
+├── Master/reference data as separate collections
+│   ├── units (police stations)
+│   ├── employees
+│   ├── courts
+│   ├── districts
+│   ├── states
+│   ├── acts & sections
+│   └── crime heads
+│
+Denormalization (for read performance):
+├── Duplicate frequently queried fields
+│   ├── districtName in caseMaster
+│   ├── unitName in caseMaster
+│   └── crimeHeadName in caseMaster
+```
+
+---
+
+## Collection 1: `caseMaster`
+
+**The core document. Embeds all transactional child records.**
+
+```javascript
+{
+  _id: ObjectId("..."),
+
+  // === Identity ===
+  caseMasterID: NumberInt(1),              // Legacy ID from old system
+  crimeNo: "104430006202600001",           // Structured: Category+District+Unit+Year+Serial
+  caseNo: "202600001",                     // YYYY + 5-digit serial
+  caseCategoryID: NumberInt(1),            // FK → caseCategories
+  caseCategoryName: "FIR",                 // Denormalized for fast reads
+
+  // === Registration ===
+  crimeRegisteredDate: ISODate("2026-01-15T10:30:00Z"),
+  policePersonID: NumberInt(4521),         // FK → employees
+  policePersonName: "Ramesh Kumar",        // Denormalized
+  policeStationID: NumberInt(6),           // FK → units
+  policeStationName: "Majestic PS",        // Denormalized
+  districtID: NumberInt(44),               // FK → districts
+  districtName: "Bengaluru Urban",         // Denormalized
+  stateID: NumberInt(1),                   // FK → states
+  stateName: "Karnataka",                  // Denormalized
+
+  // === Classification ===
+  gravityOffenceID: NumberInt(1),
+  gravityOffenceName: "Heinous",           // Denormalized
+  crimeMajorHeadID: NumberInt(3),
+  crimeMajorHeadName: "Crimes Against Body", // Denormalized
+  crimeMinorHeadID: NumberInt(12),
+  crimeMinorHeadName: "Murder",            // Denormalized
+
+  // === Status & Court ===
+  caseStatusID: NumberInt(2),
+  caseStatusName: "Under Investigation",   // Denormalized
+  courtID: NumberInt(15),
+  courtName: "District Court Bengaluru",   // Denormalized
+
+  // === Incident Timeline ===
+  incidentFromDate: ISODate("2026-01-14T22:00:00Z"),
+  incidentToDate: ISODate("2026-01-15T02:00:00Z"),
+  infoReceivedPSDate: ISODate("2026-01-15T06:00:00Z"),
+
+  // === Location (GeoJSON for native MongoDB queries) ===
+  location: {
+    type: "Point",
+    coordinates: [77.5946, 12.9716]         // [longitude, latitude] — GeoJSON standard
+  },
+  latitude: 12.9716,
+  longitude: 77.5946,
+  locationAddress: "Majestic Bus Stand Area, Bengaluru",
+
+  // === Narrative ===
+  briefFacts: "On 14/01/2026 at approximately 2200 hours, the victim...",
+
+  // ============================================================
+  // EMBEDDED: Complainants (was ComplainantDetails table)
+  // ============================================================
+  complainants: [
+    {
+      complainantID: NumberInt(101),
+      complainantName: "Suresh M",
+      ageYear: NumberInt(35),
+      genderID: "M",
+      occupationID: NumberInt(5),
+      occupationName: "Private Employee",    // Denormalized
+      religionID: NumberInt(1),
+      religionName: "Hindu",                 // Denormalized
+      casteID: NumberInt(22),
+      casteName: "Lingayat",                 // Denormalized
+      contactPhone: "9876543210",
+      contactAddress: "..."
+    }
+  ],
+
+  // ============================================================
+  // EMBEDDED: Victims (was Victim table)
+  // ============================================================
+  victims: [
+    {
+      victimMasterID: NumberInt(201),
+      victimName: "Priya Sharma",
+      ageYear: NumberInt(28),
+      genderID: "F",
+      isPolicePerson: false,
+      injuryDetails: "Multiple stab wounds",
+      medicalCaseNumber: "MCN-2026-0045"
+    }
+  ],
+
+  // ============================================================
+  // EMBEDDED: Accused (was Accused table)
+  // ============================================================
+  accused: [
+    {
+      accusedMasterID: NumberInt(301),
+      accusedName: "Ravi Kumar",
+      ageYear: NumberInt(32),
+      genderID: "M",
+      personID: "A1",                        // Sorting: A1, A2, A3...
+      identifyingMarks: "Tattoo on left forearm",
+      address: "..."
+    },
+    {
+      accusedMasterID: NumberInt(302),
+      accusedName: "Mohammed Irfan",
+      ageYear: NumberInt(29),
+      genderID: "M",
+      personID: "A2",
+      identifyingMarks: "Scar on right cheek",
+      address: "..."
+    }
+  ],
+
+  // ============================================================
+  // EMBEDDED: Act-Section Associations (was ActSectionAssociation table)
+  // ============================================================
+  actSections: [
+    {
+      actCode: "IPC",
+      actDescription: "Indian Penal Code",
+      sectionCode: "302",
+      sectionDescription: "Punishment for murder",
+      actOrderID: NumberInt(1),
+      sectionOrderID: NumberInt(1)
+    },
+    {
+      actCode: "IPC",
+      actDescription: "Indian Penal Code",
+      sectionCode: "201",
+      sectionDescription: "Causing disappearance of evidence",
+      actOrderID: NumberInt(1),
+      sectionOrderID: NumberInt(2)
+    },
+    {
+      actCode: "IPC",
+      actDescription: "Indian Penal Code",
+      sectionCode: "34",
+      sectionDescription: "Acts done by several persons in furtherance of common intention",
+      actOrderID: NumberInt(1),
+      sectionOrderID: NumberInt(3)
+    }
+  ],
+
+  // ============================================================
+  // EMBEDDED: Arrest/Surrender Events (was ArrestSurrender table)
+  // ============================================================
+  arrestSurrenders: [
+    {
+      arrestSurrenderID: NumberInt(501),
+      arrestSurrenderTypeID: NumberInt(1),    // 1=Arrest, 2=Surrender
+      arrestSurrenderTypeName: "Arrest",
+      arrestSurrenderDate: ISODate("2026-01-20T14:00:00Z"),
+      stateID: NumberInt(1),
+      stateName: "Karnataka",
+      districtID: NumberInt(44),
+      districtName: "Bengaluru Urban",
+      policeStationID: NumberInt(6),
+      policeStationName: "Majestic PS",
+      ioID: NumberInt(4521),
+      ioName: "Ramesh Kumar",
+      courtID: NumberInt(15),
+      courtName: "District Court Bengaluru",
+      accusedMasterID: NumberInt(301),
+      accusedName: "Ravi Kumar",
+      isAccused: true,
+      isComplainantAccused: false,
+      arrestDetails: "Arrested from hideout near Yeshwanthpur"
+    }
+  ],
+
+  // ============================================================
+  // EMBEDDED: Chargesheet Details (was ChargesheetDetails table)
+  // ============================================================
+  chargesheet: {
+    csID: NumberInt(801),
+    csDate: ISODate("2026-03-15T00:00:00Z"),
+    csType: "A",                              // A=Chargesheet, B=False Case, C=Undetected
+    csTypeName: "Chargesheet",
+    policePersonID: NumberInt(4521),
+    policePersonName: "Ramesh Kumar"
+  },
+
+  // ============================================================
+  // SYSTEM / METADATA
+  // ============================================================
+  searchVector: null,                        // Populated by embedding pipeline
+  embeddingGenerated: false,
+
+  createdAt: ISODate("2026-01-15T10:30:00Z"),
+  updatedAt: ISODate("2026-03-15T16:00:00Z"),
+  createdBy: "officer_4521",
+  updatedBy: "officer_4521",
+  version: NumberInt(3),
+
+  // For soft delete
+  isActive: true
+}
+```
+
+### Indexes for `caseMaster`
+
+```javascript
+// Primary lookup — Crime Number
+db.caseMaster.createIndex(
+  { crimeNo: 1 },
+  { unique: true }
+)
+
+// Case Number lookup
+db.caseMaster.createIndex(
+  { caseNo: 1, policeStationID: 1 }
+)
+
+// Date range queries (most common)
+db.caseMaster.createIndex(
+  { crimeRegisteredDate: -1 }
+)
+
+// District + Date (dashboard filters)
+db.caseMaster.createIndex(
+  { districtID: 1, crimeRegisteredDate: -1 }
+)
+
+// Station + Date (station-level reports)
+db.caseMaster.createIndex(
+  { policeStationID: 1, crimeRegisteredDate: -1 }
+)
+
+// Crime head analysis
+db.caseMaster.createIndex(
+  { crimeMajorHeadID: 1, crimeRegisteredDate: -1 }
+)
+
+// Status tracking
+db.caseMaster.createIndex(
+  { caseStatusID: 1, districtID: 1 }
+)
+
+// GEOGRAPHIC — Near queries for hotspots
+db.caseMaster.createIndex(
+  { location: "2dsphere" }
+)
+
+// TEXT SEARCH — Full-text on narrative
+db.caseMaster.createIndex(
+  {
+    briefFacts: "text",
+    "accused.accusedName": "text",
+    "victims.victimName": "text",
+    "complainants.complainantName": "text"
+  },
+  {
+    weights: {
+      briefFacts: 10,
+      "accused.accusedName": 5,
+      "victims.victimName": 5,
+      "complainants.complainantName": 3
+    },
+    name: "case_text_search"
+  }
+)
+
+// Accused name search (embedded array)
+db.caseMaster.createIndex(
+  { "accused.accusedName": 1 }
+)
+
+// Act-Section queries (e.g., all IPC 302 cases)
+db.caseMaster.createIndex(
+  { "actSections.actCode": 1, "actSections.sectionCode": 1 }
+)
+
+// Gravity + District (risk analysis)
+db.caseMaster.createIndex(
+  { gravityOffenceID: 1, districtID: 1, crimeRegisteredDate: -1 }
+)
+
+// Compound: Unit + Status + Date
+db.caseMaster.createIndex(
+  { policeStationID: 1, caseStatusID: 1, crimeRegisteredDate: -1 }
+)
+```
+
+---
+
+## Collection 2: `units`
+
+**Police stations and units hierarchy.**
+
+```javascript
+{
+  _id: ObjectId("..."),
+  unitID: NumberInt(6),
+  unitName: "Majestic Police Station",
+  unitCode: "PS006",
+  typeID: NumberInt(3),
+  typeName: "Police Station",
+  parentUnitID: NumberInt(2),              // Self-reference for hierarchy
+  parentUnitName: "West Division",         // Denormalized
+  stateID: NumberInt(1),
+  stateName: "Karnataka",
+  districtID: NumberInt(44),
+  districtName: "Bengaluru Urban",
+  nationalityID: NumberInt(1),
+  location: {
+    type: "Point",
+    coordinates: [77.5946, 12.9716]
+  },
+  address: "Majestic, Bengaluru - 560001",
+  phone: "080-22941234",
+  jurisdictionAreas: [                     // Polygon for jurisdiction boundary
+    {
+      type: "Polygon",
+      coordinates: [[...]]
+    }
+  ],
+  active: true,
+  createdAt: ISODate("2020-01-01T00:00:00Z")
+}
+```
+
+### Indexes
+
+```javascript
+db.units.createIndex({ unitID: 1 }, { unique: true })
+db.units.createIndex({ districtID: 1, active: 1 })
+db.units.createIndex({ typeID: 1, active: 1 })
+db.units.createIndex({ parentUnitID: 1 })
+db.units.createIndex({ location: "2dsphere" })
+```
+
+---
+
+## Collection 3: `employees`
+
+**Police personnel.**
+
+```javascript
+{
+  _id: ObjectId("..."),
+  employeeID: NumberInt(4521),
+  kgid: "KA-2020-4521",                    // Karnataka Government ID
+  firstName: "Ramesh",
+  lastName: "Kumar",
+  fullName: "Ramesh Kumar",
+  employeeDOB: ISODate("1985-06-15T00:00:00Z"),
+  genderID: "M",
+  genderName: "Male",
+  bloodGroupID: NumberInt(2),
+  bloodGroupName: "B+",
+  physicallyChallenged: false,
+  appointmentDate: ISODate("2010-03-01T00:00:00Z"),
+  rankID: NumberInt(5),
+  rankName: "Sub-Inspector",
+  rankHierarchy: NumberInt(5),
+  designationID: NumberInt(8),
+  designationName: "Investigating Officer",
+  unitID: NumberInt(6),
+  unitName: "Majestic Police Station",
+  districtID: NumberInt(44),
+  districtName: "Bengaluru Urban",
+  stateID: NumberInt(1),
+  stateName: "Karnataka",
+  contactPhone: "9876543210",
+  contactEmail: "ramesh.kumar@ksp.gov.in",
+  // Current posting history
+  postings: [
+    {
+      unitID: NumberInt(6),
+      unitName: "Majestic PS",
+      fromDate: ISODate("2023-04-01T00:00:00Z"),
+      toDate: null,                         // null = current
+      designationID: NumberInt(8),
+      designationName: "IO"
+    },
+    {
+      unitID: NumberInt(12),
+      unitName: "JP Nagar PS",
+      fromDate: ISODate("2020-01-01T00:00:00Z"),
+      toDate: ISODate("2023-03-31T00:00:00Z"),
+      designationID: NumberInt(9),
+      designationName: "PSI"
+    }
+  ],
+  active: true,
+  createdAt: ISODate("2020-01-01T00:00:00Z")
+}
+```
+
+### Indexes
+
+```javascript
+db.employees.createIndex({ employeeID: 1 }, { unique: true })
+db.employees.createIndex({ kgid: 1 }, { unique: true })
+db.employees.createIndex({ unitID: 1, active: 1 })
+db.employees.createIndex({ districtID: 1, active: 1 })
+db.employees.createIndex({ rankID: 1 })
+db.employees.createIndex({ fullName: "text" })
+```
+
+---
+
+## Collection 4: `acts`
+
+**Legal acts with embedded sections.**
+
+```javascript
+{
+  _id: ObjectId("..."),
+  actCode: "IPC",
+  actDescription: "Indian Penal Code, 1860",
+  shortName: "IPC",
+  active: true,
+
+  // EMBEDDED sections — always accessed together with the act
+  sections: [
+    {
+      sectionCode: "302",
+      sectionDescription: "Punishment for murder",
+      active: true,
+      punishment: "Death, or imprisonment for life, and shall also be liable to fine",
+      isBailable: false,
+      isCognizable: true,
+      isCompoundable: false
+    },
+    {
+      sectionCode: "307",
+      sectionDescription: "Attempt to murder",
+      active: true,
+      punishment: "Imprisonment for life, or imprisonment up to 10 years, and fine",
+      isBailable: false,
+      isCognizable: true,
+      isCompoundable: false
+    },
+    {
+      sectionCode: "376",
+      sectionDescription: "Punishment for rape",
+      active: true,
+      punishment: "Not less than 10 years which may extend to imprisonment for life",
+      isBailable: false,
+      isCognizable: true,
+      isCompoundable: false
+    }
+    // ... hundreds more
+  ],
+
+  // For fast section-level lookup without array scan
+  sectionIndex: {
+    "302": 0,
+    "307": 1,
+    "376": 2
+  },
+
+  createdAt: ISODate("2020-01-01T00:00:00Z")
+}
+```
+
+### Indexes
+
+```javascript
+db.acts.createIndex({ actCode: 1 }, { unique: true })
+db.acts.createIndex({ "sections.sectionCode": 1 })
+```
+
+---
+
+## Collection 5: `crimeHeads`
+
+**Crime classification hierarchy with embedded sub-heads.**
+
+```javascript
+{
+  _id: ObjectId("..."),
+  crimeHeadID: NumberInt(3),
+  crimeGroupName: "Crimes Against Body",
+  active: true,
+
+  // EMBEDDED sub-heads
+  subHeads: [
+    {
+      crimeSubHeadID: NumberInt(12),
+      crimeHeadName: "Murder",
+      seqID: NumberInt(1),
+      active: true
+    },
+    {
+      crimeSubHeadID: NumberInt(13),
+      crimeHeadName: "Attempt to Murder",
+      seqID: NumberInt(2),
+      active: true
+    },
+    {
+      crimeSubHeadID: NumberInt(14),
+      crimeHeadName: "Culpable Homicide",
+      seqID: NumberInt(3),
+      active: true
+    }
+  ],
+
+  // Act-Section mappings for this crime head
+  actSectionMappings: [
+    {
+      actCode: "IPC",
+      sectionCode: "302"
+    },
+    {
+      actCode: "IPC",
+      sectionCode: "304"
+    }
+  ],
+
+  createdAt: ISODate("2020-01-01T00:00:00Z")
+}
+```
+
+### Indexes
+
+```javascript
+db.crimeHeads.createIndex({ crimeHeadID: 1 }, { unique: true })
+db.crimeHeads.createIndex({ "subHeads.crimeSubHeadID": 1 })
+```
+
+---
+
+## Collection 6: `districts`
+
+```javascript
+{
+  _id: ObjectId("..."),
+  districtID: NumberInt(44),
+  districtName: "Bengaluru Urban",
+  stateID: NumberInt(1),
+  stateName: "Karnataka",
+  location: {
+    type: "Point",
+    coordinates: [77.5946, 12.9716]
+  },
+  boundary: {
+    type: "Polygon",
+    coordinates: [[...]]
+  },
+  active: true
+}
+```
+
+### Indexes
+
+```javascript
+db.districts.createIndex({ districtID: 1 }, { unique: true })
+db.districts.createIndex({ stateID: 1, active: 1 })
+db.districts.createIndex({ location: "2dsphere" })
+```
+
+---
+
+## Collection 7: `states`
+
+```javascript
+{
+  _id: ObjectId("..."),
+  stateID: NumberInt(1),
+  stateName: "Karnataka",
+  nationalityID: NumberInt(1),
+  active: true
+}
+```
+
+### Indexes
+
+```javascript
+db.states.createIndex({ stateID: 1 }, { unique: true })
+```
+
+---
+
+## Collection 8: `courts`
+
+```javascript
+{
+  _id: ObjectId("..."),
+  courtID: NumberInt(15),
+  courtName: "District and Sessions Court, Bengaluru Urban",
+  districtID: NumberInt(44),
+  districtName: "Bengaluru Urban",
+  stateID: NumberInt(1),
+  stateName: "Karnataka",
+  courtType: "District",
+  address: "Bangalore Civil Court Complex, Bengaluru",
+  active: true
+}
+```
+
+### Indexes
+
+```javascript
+db.courts.createIndex({ courtID: 1 }, { unique: true })
+db.courts.createIndex({ districtID: 1, active: 1 })
+```
+
+---
+
+## Collections 9–14: Small Lookup Masters
+
+These are small, relatively static reference collections. Keep them separate for manageability.
+
+### `caseCategories`
+
+```javascript
+{ _id: ObjectId("..."), caseCategoryID: 1, lookupValue: "FIR", description: "First Information Report" }
+{ _id: ObjectId("..."), caseCategoryID: 2, lookupValue: "UDR", description: "Unnatural Death Report" }
+{ _id: ObjectId("..."), caseCategoryID: 3, lookupValue: "PAR", description: "Preliminary Accusation Report" }
+{ _id: ObjectId("..."), caseCategoryID: 4, lookupValue: "Zero FIR", description: "FIR registered at any PS, transferred later" }
+```
+
+### `caseStatuses`
+
+```javascript
+{ _id: ObjectId("..."), caseStatusID: 1, caseStatusName: "Registered" }
+{ _id: ObjectId("..."), caseStatusID: 2, caseStatusName: "Under Investigation" }
+{ _id: ObjectId("..."), caseStatusID: 3, caseStatusName: "Charge Sheeted" }
+{ _id: ObjectId("..."), caseStatusID: 4, caseStatusName: "Closed" }
+{ _id: ObjectId("..."), caseStatusID: 5, caseStatusName: "Undetected" }
+{ _id: ObjectId("..."), caseStatusID: 6, caseStatusName: "Compounded" }
+{ _id: ObjectId("..."), caseStatusID: 7, caseStatusName: "Acquitted" }
+{ _id: ObjectId("..."), caseStatusID: 8, caseStatusName: "Convicted" }
+```
+
+### `gravityOffences`
+
+```javascript
+{ _id: ObjectId("..."), gravityOffenceID: 1, lookupValue: "Heinous" }
+{ _id: ObjectId("..."), gravityOffenceID: 2, lookupValue: "Non-Heinous" }
+{ _id: ObjectId("..."), gravityOffenceID: 3, lookupValue: "Petty" }
+```
+
+### `ranks`
+
+```javascript
+{ _id: ObjectId("..."), rankID: 1, rankName: "Director General of Police", hierarchy: 1, active: true }
+{ _id: ObjectId("..."), rankID: 2, rankName: "Additional Director General", hierarchy: 2, active: true }
+{ _id: ObjectId("..."), rankID: 3, rankName: "Inspector General", hierarchy: 3, active: true }
+{ _id: ObjectId("..."), rankID: 4, rankName: "Deputy Inspector General", hierarchy: 4, active: true }
+{ _id: ObjectId("..."), rankID: 5, rankName: "Superintendent of Police", hierarchy: 5, active: true }
+{ _id: ObjectId("..."), rankID: 6, rankName: "Deputy Superintendent", hierarchy: 6, active: true }
+{ _id: ObjectId("..."), rankID: 7, rankName: "Inspector", hierarchy: 7, active: true }
+{ _id: ObjectId("..."), rankID: 8, rankName: "Sub-Inspector", hierarchy: 8, active: true }
+{ _id: ObjectId("..."), rankID: 9, rankName: "Assistant Sub-Inspector", hierarchy: 9, active: true }
+{ _id: ObjectId("..."), rankID: 10, rankName: "Head Constable", hierarchy: 10, active: true }
+{ _id: ObjectId("..."), rankID: 11, rankName: "Constable", hierarchy: 11, active: true }
+```
+
+### `designations`
+
+```javascript
+{ _id: ObjectId("..."), designationID: 1, designationName: "Station House Officer", active: true, sortOrder: 1 }
+{ _id: ObjectId("..."), designationID: 2, designationName: "Investigating Officer", active: true, sortOrder: 2 }
+{ _id: ObjectId("..."), designationID: 3, designationName: "Circle Inspector", active: true, sortOrder: 3 }
+```
+
+### `unitTypes`
+
+```javascript
+{ _id: ObjectId("..."), unitTypeID: 1, unitTypeName: "State Headquarters", cityDistState: "State", hierarchy: 1, active: true }
+{ _id: ObjectId("..."), unitTypeID: 2, unitTypeName: "District Office", cityDistState: "District", hierarchy: 2, active: true }
+{ _id: ObjectId("..."), unitTypeID: 3, unitTypeName: "Police Station", cityDistState: "City", hierarchy: 5, active: true }
+{ _id: ObjectId("..."), unitTypeID: 4, unitTypeName: "Circle Office", cityDistState: "City", hierarchy: 4, active: true }
+```
+
+### `religions`
+
+```javascript
+{ _id: ObjectId("..."), religionID: 1, religionName: "Hindu" }
+{ _id: ObjectId("..."), religionID: 2, religionName: "Muslim" }
+{ _id: ObjectId("..."), religionID: 3, religionName: "Christian" }
+{ _id: ObjectId("..."), religionID: 4, religionName: "Sikh" }
+{ _id: ObjectId("..."), religionID: 5, religionName: "Buddhist" }
+{ _id: ObjectId("..."), religionID: 6, religionName: "Jain" }
+{ _id: ObjectId("..."), religionID: 7, religionName: "Other" }
+```
+
+### `castes`
+
+```javascript
+{ _id: ObjectId("..."), caste_master_id: 1, caste_master_name: "Lingayat" }
+{ _id: ObjectId("..."), caste_master_id: 2, caste_master_name: "Vokkaliga" }
+// ... many more
+```
+
+### `occupations`
+
+```javascript
+{ _id: ObjectId("..."), occupationID: 1, occupationName: "Farmer" }
+{ _id: ObjectId("..."), occupationID: 2, occupationName: "Government Employee" }
+{ _id: ObjectId("..."), occupationID: 3, occupationName: "Private Employee" }
+{ _id: ObjectId("..."), occupationID: 4, occupationName: "Business" }
+{ _id: ObjectId("..."), occupationID: 5, occupationName: "Labour" }
+{ _id: ObjectId("..."), occupationID: 6, occupationName: "Student" }
+{ _id: ObjectId("..."), occupationID: 7, occupationName: "Unemployed" }
+{ _id: ObjectId("..."), occupationID: 8, occupationName: "Homemaker" }
+{ _id: ObjectId("..."), occupationID: 9, occupationName: "Retired" }
+{ _id: ObjectId("..."), occupationID: 10, occupationName: "Other" }
+```
+
+---
+
+## Collection 15: `caseAuditLog`
+
+**Separate audit trail — never embed in main document.**
+
+```javascript
+{
+  _id: ObjectId("..."),
+  caseMasterID: NumberInt(1),
+  crimeNo: "104430006202600001",
+  action: "STATUS_CHANGE",                   // REGISTERED, STATUS_CHANGE, ARREST, CHARGESHEET, etc.
+  oldValue: { caseStatusID: 2, caseStatusName: "Under Investigation" },
+  newValue: { caseStatusID: 3, caseStatusName: "Charge Sheeted" },
+  performedBy: NumberInt(4521),
+  performedByName: "Ramesh Kumar",
+  performedAt: ISODate("2026-03-15T16:00:00Z"),
+  ipAddress: "192.168.1.100",
+  notes: "Chargesheet filed under IPC 302, 201, 34"
+}
+```
+
+### Indexes
+
+```javascript
+db.caseAuditLog.createIndex({ caseMasterID: 1, performedAt: -1 })
+db.caseAuditLog.createIndex({ crimeNo: 1 })
+db.caseAuditLog.createIndex({ performedBy: 1, performedAt: -1 })
+db.caseAuditLog.createIndex({ action: 1, performedAt: -1 })
+```
+
+---
+
+# Complete Collection Summary
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                   MONGODB DATABASE                           │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  CORE DOCUMENT                                                │
+│  ├── caseMaster          ← The FIR document (embedded children)
+│  │   ├── complainants[]  ← was ComplainantDetails table       │
+│  │   ├── victims[]       ← was Victim table                   │
+│  │   ├── accused[]       ← was Accused table                  │
+│  │   ├── actSections[]   ← was ActSectionAssociation table    │
+│  │   ├── arrestSurrenders[] ← was ArrestSurrender table       │
+│  │   └── chargesheet     ← was ChargesheetDetails table       │
+│  │                                                          │
+│  REFERENCE COLLECTIONS                                        │
+│  ├── units               ← Police stations + hierarchy        │
+│  ├── employees           ← Police personnel + postings[]      │
+│  ├── acts                ← Legal acts + sections[]            │
+│  ├── crimeHeads          ← Crime classification + subHeads[]  │
+│  ├── districts           ← District geometries                │
+│  ├── states              ← State master                       │
+│  ├── courts              ← Court master                       │
+│  │                                                          │
+│  LOOKUP MASTERS                                               │
+│  ├── caseCategories      ← FIR, UDR, PAR, Zero FIR           │
+│  ├── caseStatuses        ← Investigation, Chargesheet, etc.   │
+│  ├── gravityOffences     ← Heinous, Non-Heinous, Petty        │
+│  ├── ranks               ← DGP to Constable                   │
+│  ├── designations        ← SHO, IO, CI, etc.                  │
+│  ├── unitTypes           ← HQ, District, Circle, PS           │
+│  ├── religions           ← Hindu, Muslim, etc.                │
+│  ├── castes              ← Caste master list                  │
+│  └── occupations         ← Farmer, Employee, etc.             │
+│  │                                                          │
+│  SYSTEM                                                      │
+│  └── caseAuditLog        ← Immutable audit trail              │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Total: 21 collections** (down from 25+ tables in relational design)
+
+---
+
+# MongoDB Aggregation Examples
+
+## 1. Crime Dashboard — District-wise Summary
+
+```javascript
+db.caseMaster.aggregate([
+  {
+    $match: {
+      crimeRegisteredDate: {
+        $gte: ISODate("2026-01-01"),
+        $lt: ISODate("2026-02-01")
+      },
+      isActive: true
+    }
+  },
+  {
+    $group: {
+      _id: {
+        districtID: "$districtID",
+        districtName: "$districtName"
+      },
+      totalCases: { $sum: 1 },
+      heinousCases: {
+        $sum: { $cond: [{ $eq: ["$gravityOffenceID", 1] }, 1, 0] }
+      },
+      chargeSheeted: {
+        $sum: { $cond: [{ $eq: ["$caseStatusID", 3] }, 1, 0] }
+      },
+      underInvestigation: {
+        $sum: { $cond: [{ $eq: ["$caseStatusID", 2] }, 1, 0] }
+      },
+      totalArrests: { $sum: { $size: "$arrestSurrenders" } },
+      totalAccused: { $sum: { $size: "$accused" } },
+      totalVictims: { $sum: { $size: "$victims" } }
+    }
+  },
+  {
+    $sort: { totalCases: -1 }
+  }
+])
+```
+
+## 2. Nearby Crimes — Geospatial Query
+
+```javascript
+db.caseMaster.find({
+  location: {
+    $near: {
+      $geometry: {
+        type: "Point",
+        coordinates: [77.5946, 12.9716]
+      },
+      $maxDistance: 2000                    // 2 km radius
+    }
+  },
+  crimeRegisteredDate: {
+    $gte: ISODate("2026-01-01")
+  },
+  isActive: true
+})
+.select({
+  crimeNo: 1,
+  crimeMinorHeadName: 1,
+  crimeRegisteredDate: 1,
+  briefFacts: 1,
+  location: 1,
+  districtName: 1
+})
+.sort({ crimeRegisteredDate: -1 })
+.limit(50)
+```
+
+## 3. Most Dangerous Sections — Trending Acts
+
+```javascript
+db.caseMaster.aggregate([
+  { $unwind: "$actSections" },
+  {
+    $match: {
+      crimeRegisteredDate: {
+        $gte: ISODate("2025-07-01"),
+        $lt: ISODate("2026-07-01")
+      },
+      isActive: true
+    }
+  },
+  {
+    $group: {
+      _id: {
+        actCode: "$actSections.actCode",
+        sectionCode: "$actSections.sectionCode",
+        sectionDescription: "$actSections.sectionDescription"
+      },
+      count: { $sum: 1 },
+      districts: { $addToSet: "$districtName" }
+    }
+  },
+  {
+    $addFields: {
+      districtCount: { $size: "$districts" }
+    }
+  },
+  { $sort: { count: -1 } },
+  { $limit: 20 }
+])
+```
+
+## 4. Accused Network Seed — All Cases for a Name Pattern
+
+```javascript
+db.caseMaster.aggregate([
+  { $unwind: "$accused" },
+  {
+    $match: {
+      "accused.accusedName": { $regex: "Ravi", $options: "i" },
+      isActive: true
+    }
+  },
+  {
+    $project: {
+      crimeNo: 1,
+      accusedName: "$accused.accusedName",
+      accusedID: "$accused.accusedMasterID",
+      personID: "$accused.personID",
+      crimeMinorHeadName: 1,
+      crimeRegisteredDate: 1,
+      coAccused: {
+        $map: {
+          input: "$accused",
+          as: "a",
+          in: {
+            name: "$$a.accusedName",
+            personID: "$$a.personID"
+          }
+        }
+      }
+    }
+  }
+])
+```
+
+## 5. Station Performance — Cases vs ChargeSheet Rate
+
+```javascript
+db.caseMaster.aggregate([
+  {
+    $match: {
+      crimeRegisteredDate: {
+        $gte: ISODate("2025-04-01"),
+        $lt: ISODate("2026-04-01")
+      },
+      isActive: true
+    }
+  },
+  {
+    $group: {
+      _id: {
+        stationID: "$policeStationID",
+        stationName: "$policeStationName",
+        districtName: "$districtName"
+      },
+      totalFIRs: { $sum: 1 },
+      chargeSheeted: {
+        $sum: { $cond: [{ $eq: ["$caseStatusID", 3] }, 1, 0] }
+      },
+      undetected: {
+        $sum: { $cond: [{ $eq: ["$caseStatusID", 5] }, 1, 0] }
+      },
+      heinous: {
+        $sum: { $cond: [{ $eq: ["$gravityOffenceID", 1] }, 1, 0] }
+      },
+      avgDaysToChargeSheet: {
+        $avg: {
+          $cond: [
+            { $eq: ["$caseStatusID", 3] },
+            {
+              $divide: [
+                { $subtract: ["$chargesheet.csDate", "$crimeRegisteredDate"] },
+                1000 * 60 * 60 * 24                            // ms to days
+              ]
+            },
+            null
+          ]
+        }
+      }
+    }
+  },
+  {
+    $addFields: {
+      chargeSheetRate: {
+        $round: [{ $multiply: [{ $divide: ["$chargeSheeted", "$totalFIRs"] }, 100] }, 1]
+      }
+    }
+  },
+  { $sort: { chargeSheetRate: 1 } },                        // Worst performers first
+  { $limit: 20 }
+])
+```
+
+## 6. Full-Text Search on FIR Narratives
+
+```javascript
+db.caseMaster.find(
+  {
+    $text: {
+      $search: "burglary jewelry night broken lock",
+      $language: "english"
+    },
+    isActive: true
+  },
+  {
+    score: { $meta: "textScore" },
+    crimeNo: 1,
+    crimeMinorHeadName: 1,
+    briefFacts: 1,
+    crimeRegisteredDate: 1,
+    districtName: 1
+  }
+).sort({ score: { $meta: "textScore" } }).limit(20)
+```
+
+---
+
+# Neo4j Graph Schema
+
+**Fed from MongoDB via sync pipeline.**
+
+## Node Types
+
+```text
+(:Person {
+  name: String,
+  personID: String,            // A1, A2, etc.
+  role: String,                // "accused", "victim", "complainant"
+  age: Int,
+  gender: String
+})
+
+(:Case {
+  crimeNo: String,
+  caseMasterID: Int,
+  crimeType: String,
+  crimeDate: DateTime,
+  status: String,
+  district: String
+})
+
+(:Unit {
+  unitID: Int,
+  name: String,
+  type: String
+})
+
+(:Employee {
+  employeeID: Int,
+  name: String,
+  rank: String,
+  designation: String
+})
+
+(:ActSection {
+  actCode: String,
+  sectionCode: String,
+  description: String
+})
+
+(:Vehicle {
+  registrationNo: String,
+  type: String
+})
+
+(:Location {
+  name: String,
+  latitude: Float,
+  longitude: Float
+})
+```
+
+## Relationship Types
+
+```text
+(Person)-[:ACCUSED_IN]->(Case)
+(Person)-[:VICTIM_IN]->(Case)
+(Person)-[:COMPLAINT_IN]->(Case)
+(Person)-[:KNOWN_AS]->(Person)             // Alias resolution
+(Person)-[:ASSOCIATED_WITH]->(Person)      // Co-accused link
+(Person)-[:OWNS]->(Vehicle)
+(Person)-[:FREQUENTS]->(Location)
+(Case)-[:REGISTERED_AT]->(Unit)
+(Case)-[:INVESTIGATED_BY]->(Employee)
+(Case)-[:CHARGED_UNDER]->(ActSection)
+(Case)-[:OCCURRED_AT]->(Location)
+(Case)-[:SIMILAR_TO]->(Case)              // AI-generated similarity
+(Employee)-[:POSTED_AT]->(Unit)
+```
+
+## Graph Sync from MongoDB (Python)
+
+```python
+from neo4j import GraphDatabase
+from pymongo import MongoClient
+
+def sync_case_to_graph(mongo_doc):
+    """Sync a single caseMaster document to Neo4j."""
+    with neo4j_driver.session() as session:
+        # Create Case node
+        session.run("""
+            MERGE (c:Case {crimeNo: $crimeNo})
+            SET c.caseMasterID = $caseMasterID,
+                c.crimeType = $crimeType,
+                c.crimeDate = $crimeDate,
+                c.status = $status,
+                c.district = $district
+        """, crimeNo=mongo_doc["crimeNo"],
+             caseMasterID=mongo_doc["caseMasterID"],
+             crimeType=mongo_doc["crimeMinorHeadName"],
+             crimeDate=mongo_doc["crimeRegisteredDate"],
+             status=mongo_doc["caseStatusName"],
+             district=mongo_doc["districtName"])
+
+        # Create Person nodes and relationships
+        for accused in mongo_doc.get("accused", []):
+            session.run("""
+                MERGE (p:Person {name: $name, personID: $pid})
+                SET p.role = 'accused', p.age = $age, p.gender = $gender
+                WITH p
+                MATCH (c:Case {crimeNo: $crimeNo})
+                MERGE (p)-[:ACCUSED_IN]->(c)
+            """, name=accused["accusedName"],
+                 pid=accused["personID"],
+                 age=accused["ageYear"],
+                 gender=accused["genderID"],
+                 crimeNo=mongo_doc["crimeNo"])
+
+        # Create co-accused associations
+        accused_names = [a["accusedName"] for a in mongo_doc.get("accused", [])]
+        for i, name1 in enumerate(accused_names):
+            for name2 in accused_names[i+1:]:
+                session.run("""
+                    MATCH (p1:Person {name: $name1})
+                    MATCH (p2:Person {name: $name2})
+                    MERGE (p1)-[:ASSOCIATED_WITH {case: $crimeNo}]->(p2)
+                """, name1=name1, name2=name2, crimeNo=mongo_doc["crimeNo"])
+
+        # Act-Section relationships
+        for act_sec in mongo_doc.get("actSections", []):
+            session.run("""
+                MERGE (s:ActSection {actCode: $act, sectionCode: $sec})
+                SET s.description = $desc
+                WITH s
+                MATCH (c:Case {crimeNo: $crimeNo})
+                MERGE (c)-[:CHARGED_UNDER]->(s)
+            """, act=act_sec["actCode"],
+                 sec=act_sec["sectionCode"],
+                 desc=act_sec["sectionDescription"],
+                 crimeNo=mongo_doc["crimeNo"])
+```
+
+## Powerful Graph Queries
+
+### Find all associates of a person (3 hops)
+
+```cypher
+MATCH path = (p:Person {name: "Ravi Kumar"})-[:ASSOCIATED_WITH*1..3]-(associate:Person)
+RETURN DISTINCT associate.name, associate.role,
+       length(path) as distance,
+       [n IN nodes(path) WHERE n:Case | n.crimeNo] as connectingCases
+ORDER BY distance
+```
+
+### Find common cases between two accused
+
+```cypher
+MATCH (p1:Person {name: "Ravi Kumar"})-[:ACCUSED_IN]->(c:Case)<-[:ACCUSED_IN]-(p2:Person {name: "Mohammed Irfan"})
+RETURN c.crimeNo, c.crimeType, c.crimeDate
+```
+
+### Gang detection — dense clusters
+
+```cypher
+MATCH (p1:Person)-[:ASSOCIATED_WITH]-(p2:Person)
+WITH p1, count(p2) as connectionCount
+WHERE connectionCount >= 3
+RETURN p1.name, connectionCount
+ORDER BY connectionCount DESC
+```
+
+---
+
+# Qdrant Vector Schema
+
+**Embedded vectors generated from FIR narratives for semantic search.**
+
+## Collection: `fir_embeddings`
+
+```python
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance, VectorParams, PointStruct,
+    FieldCondition, Filter, MatchValue
+)
+
+# Create collection
+qdrant.create_collection(
+    collection_name="fir_embeddings",
+    vectors_config=VectorParams(
+        size=384,                       # all-MiniLM-L6-v2 output
+        distance=Distance.COSINE
+    )
+)
+
+# Payload structure matching MongoDB document
+payload = {
+    "case_master_id": 1,
+    "crime_no": "104430006202600001",
+    "crime_type": "Murder",
+    "crime_head": "Crimes Against Body",
+    "district": "Bengaluru Urban",
+    "station": "Majestic PS",
+    "register_date": "2026-01-15",
+    "status": "Under Investigation",
+    "gravity": "Heinous",
+    "acts_sections": ["IPC 302", "IPC 201", "IPC 34"],
+    "accused_names": ["Ravi Kumar", "Mohammed Irfan"],
+    "victim_names": ["Priya Sharma"],
+    # Store snippet for preview
+    "brief_facts_snippet": "On 14/01/2026 at approximately 2200 hours..."
+}
+```
+
+## Semantic Search Example
+
+```python
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+def semantic_search(query: str, district: str = None, top_k: int = 10):
+    """Search FIRs by meaning, not just keywords."""
+
+    query_vector = model.encode(query).tolist()
+
+    # Build filters
+    conditions = []
+    if district:
+        conditions.append(
+            FieldCondition(key="district", match=MatchValue(value=district))
+        )
+
+    results = qdrant.search(
+        collection_name="fir_embeddings",
+        query_vector=query_vector,
+        query_filter=Filter(must=conditions) if conditions else None,
+        limit=top_k,
+        with_payload=True
+    )
+
+    return [
+        {
+            "crime_no": r.payload["crime_no"],
+            "crime_type": r.payload["crime_type"],
+            "district": r.payload["district"],
+            "register_date": r.payload["register_date"],
+            "status": r.payload["status"],
+            "snippet": r.payload["brief_facts_snippet"],
+            "similarity_score": r.score
+        }
+        for r in results
+    ]
+
+# Example: "Night time house break-ins where locks were broken"
+results = semantic_search(
+    "Night time house break-ins where locks were broken",
+    district="Bengaluru Urban"
+)
+```
+
+## Similar Case Discovery
+
+```python
+def find_similar_cases(crime_no: str, top_k: int = 5):
+    """Find cases similar to a given case."""
+
+    # Get the vector for the reference case
+    points = qdrant.scroll(
+        collection_name="fir_embeddings",
+        scroll_filter=Filter(must=[
+            FieldCondition(key="crime_no", match=MatchValue(value=crime_no))
+        ]),
+        limit=1
+    )
+
+    if not points[0]:
+        return []
+
+    reference_vector = points[0][0].vector
+
+    # Search for similar vectors (excluding the reference itself)
+    results = qdrant.search(
+        collection_name="fir_embeddings",
+        query_vector=reference_vector,
+        query_filter=Filter(must_not=[
+            FieldCondition(key="crime_no", match=MatchValue(value=crime_no))
+        ]),
+        limit=top_k,
+        with_payload=True
+    )
+
+    return results
+```
+
+---
+
+# RAG Pipeline — MongoDB + Qdrant + Gemini
+
+```python
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.prompts import ChatPromptTemplate
+from pymongo import MongoClient
+
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0.1)
+
+def answer_question(question: str, district: str = None) -> dict:
+    """
+    Full RAG pipeline:
+    1. Semantic search in Qdrant
+    2. Fetch full documents from MongoDB
+    3. Send context + question to Gemini
+    4. Return evidence-based answer
+    """
+
+    # Step 1: Semantic search
+    relevant_hits = semantic_search(question, district=district, top_k=5)
+
+    if not relevant_hits:
+        return {
+            "answer": "No relevant cases found for your query.",
+            "evidence": [],
+            "sources": []
+        }
+
+    # Step 2: Fetch full documents from MongoDB
+    crime_nos = [hit["crime_no"] for hit in relevant_hits]
+    cases = list(mongo_db.caseMaster.find(
+        {"crimeNo": {"$in": crime_nos}, "isActive": True},
+        {
+            "crimeNo": 1, "caseNo": 1, "crimeMinorHeadName": 1,
+            "crimeRegisteredDate": 1, "districtName": 1,
+            "policeStationName": 1, "caseStatusName": 1,
+            "briefFacts": 1, "gravityOffenceName": 1,
+            "accused.accusedName": 1, "accused.personID": 1,
+            "victims.victimName": 1,
+            "actSections.actCode": 1, "actSections.sectionCode": 1,
+            "actSections.sectionDescription": 1,
+            "arrestSurrenders.arrestSurrenderDate": 1,
+            "arrestSurrenders.arrestSurrenderTypeName": 1,
+            "chargesheet.csDate": 1, "chargesheet.csTypeName": 1
+        }
+    ))
+
+    # Step 3: Build context for LLM
+    context_parts = []
+    for case in cases:
+        accused_str = ", ".join(
+            f"{a['accusedName']} ({a['personID']})"
+            for a in case.get("accused", [])
+        )
+        acts_str = ", ".join(
+            f"{a['actCode']} {a['sectionCode']} - {a['sectionDescription']}"
+            for a in case.get("actSections", [])
+        )
+        victims_str = ", ".join(
+            v["victimName"] for v in case.get("victims", [])
+        )
+
+        context_parts.append(f"""
+Case: {case['crimeNo']}
+Type: {case['crimeMinorHeadName']}
+Date: {case['crimeRegisteredDate'].strftime('%d/%m/%Y')}
+District: {case['districtName']}
+Station: {case['policeStationName']}
+Status: {case['caseStatusName']}
+Gravity: {case['gravityOffenceName']}
+Victims: {victims_str or 'N/A'}
+Accused: {accused_str or 'N/A'}
+Sections: {acts_str or 'N/A'}
+Facts: {case['briefFacts'][:500]}
+{"Chargesheet: " + case['chargesheet']['csDate'].strftime('%d/%m/%Y') if case.get('chargesheet') else 'Not chargesheeted'}
+---""")
+
+    context = "\n".join(context_parts)
+    sources = [hit["crime_no"] for hit in relevant_hits]
+
+    # Step 4: Prompt Gemini with evidence
+    prompt = ChatPromptTemplate.from_template("""
+You are an AI Crime Intelligence Assistant for the Karnataka Police Department.
+Answer the officer's question based ONLY on the provided case records.
+If the records don't contain enough information, say so clearly.
+Always cite the Crime Number as evidence for each claim.
+
+=== CASE RECORDS ===
+{context}
+
+=== OFFICER'S QUESTION ===
+{question}
+
+=== INSTRUCTIONS ===
+1. Answer in clear, concise language
+2. Cite specific Crime Numbers for every factual claim
+3. If no relevant data exists, say "No matching records found"
+4. Do NOT hallucinate or infer beyond what the records state
+5. If the question asks for statistics, compute from the given records
+6. Respond in English unless the question is in Kannada
+
+ANSWER:
+""")
+
+    chain = prompt | llm
+    response = chain.invoke({
+        "context": context,
+        "question": question
+    })
+
+    return {
+        "answer": response.content,
+        "evidence": [
+            {
+                "crime_no": hit["crime_no"],
+                "similarity": round(hit["similarity_score"], 3),
+                "type": hit["crime_type"],
+                "district": hit["district"]
+            }
+            for hit in relevant_hits
+        ],
+        "sources": sources
+    }
+```
+
+---
+
+# Embedding Sync Pipeline
+
+**Background worker that keeps Qdrant in sync with MongoDB.**
+
+```python
+from sentence_transformers import SentenceTransformer
+from datetime import datetime
+import hashlib
+
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+def generate_fir_embedding(case_doc: dict) -> list:
+    """Generate embedding from FIR narrative + metadata."""
+
+    # Combine narrative with structured metadata for richer embeddings
+    text_parts = [
+        case_doc.get("briefFacts", ""),
+        f"Crime type: {case_doc.get('crimeMinorHeadName', '')}",
+        f"District: {case_doc.get('districtName', '')}",
+        f"Station: {case_doc.get('policeStationName', '')}",
+    ]
+
+    # Add accused names
+    for a in case_doc.get("accused", []):
+        text_parts.append(f"Accused: {a['accusedName']}")
+
+    # Add victim names
+    for v in case_doc.get("victims", []):
+        text_parts.append(f"Victim: {v['victimName']}")
+
+    # Add act-sections
+    for asoc in case_doc.get("actSections", []):
+        text_parts.append(
+            f"{asoc['actCode']} {asoc['sectionCode']}: {asoc['sectionDescription']}"
+        )
+
+    combined_text = " ".join(text_parts)
+    return model.encode(combined_text).tolist()
+
+
+def get_content_hash(case_doc: dict) -> str:
+    """Hash of fields that affect embedding — skip re-embedding if unchanged."""
+    content = {
+        "briefFacts": case_doc.get("briefFacts", ""),
+        "crimeMinorHeadName": case_doc.get("crimeMinorHeadName", ""),
+        "accused": [a["accusedName"] for a in case_doc.get("accused", [])],
+        "victims": [v["victimName"] for v in case_doc.get("victims", [])],
+        "actSections": [
+            f"{a['actCode']} {a['sectionCode']}"
+            for a in case_doc.get("actSections", [])
+        ]
+    }
+    return hashlib.md5(str(content).encode()).hexdigest()
+
+
+def sync_unembedded_cases():
+    """Find cases without embeddings and generate them."""
+
+    # Find cases not yet embedded
+    unembedded = mongo_db.caseMaster.find(
+        {
+            "embeddingGenerated": {"$ne": True},
+            "isActive": True
+        },
+        { "_id": 0, "caseMasterID": 1 }
+    ).limit(100)
+
+    for ref in unembedded:
+        case = mongo_db.caseMaster.find_one(
+            {"caseMasterID": ref["caseMasterID"]},
+            { "_id": 0 }
+        )
+
+        if not case:
+            continue
+
+        vector = generate_fir_embedding(case)
+        content_hash = get_content_hash(case)
+
+        # Upsert to Qdrant
+        qdrant.upsert(
+            collection_name="fir_embeddings",
+            points=[PointStruct(
+                id=case["caseMasterID"],
+                vector=vector,
+                payload={
+                    "case_master_id": case["caseMasterID"],
+                    "crime_no": case["crimeNo"],
+                    "crime_type": case.get("crimeMinorHeadName", ""),
+                    "crime_head": case.get("crimeMajorHeadName", ""),
+                    "district": case.get("districtName", ""),
+                    "station": case.get("policeStationName", ""),
+                    "register_date": case["crimeRegisteredDate"].isoformat(),
+                    "status": case.get("caseStatusName", ""),
+                    "gravity": case.get("gravityOffenceName", ""),
+                    "acts_sections": [
+                        f"{a['actCode']} {a['sectionCode']}"
+                        for a in case.get("actSections", [])
+                    ],
+                    "accused_names": [
+                        a["accusedName"] for a in case.get("accused", [])
+                    ],
+                    "victim_names": [
+                        v["victimName"] for v in case.get("victims", [])
+                    ],
+                    "brief_facts_snippet": case.get("briefFacts", "")[:300],
+                    "content_hash": content_hash
+                }
+            )]
+        )
+
+        # Mark as embedded in MongoDB
+        mongo_db.caseMaster.update_one(
+            {"caseMasterID": case["caseMasterID"]},
+            {
+                "$set": {
+                    "embeddingGenerated": True,
+                    "contentHash": content_hash,
+                    "updatedAt": datetime.utcnow()
+                }
+            }
+        )
+
+        print(f"Embedded: {case['crimeNo']}")
+
+
+def sync_updated_cases():
+    """Re-embed cases whose content has changed."""
+
+    updated = mongo_db.caseMaster.find(
+        {
+            "embeddingGenerated": True,
+            "isActive": True,
+            "$or": [
+                {"updatedAt": {"$gt": datetime.utcnow() - timedelta(hours=1)}},
+                {"contentHash": {"$exists": False}}
+            ]
+        }
+    )
+
+    for case in updated:
+        new_hash = get_content_hash(case)
+
+        if case.get("contentHash") == new_hash:
+            continue                        # No content change, skip
+
+        vector = generate_fir_embedding(case)
+
+        qdrant.upsert(
+            collection_name="fir_embeddings",
+            points=[PointStruct(
+                id=case["caseMasterID"],
+                vector=vector,
+                payload={...}              # Same payload as above
+            )]
+        )
+
+        mongo_db.caseMaster.update_one(
+            {"caseMasterID": case["caseMasterID"]},
+            {
+                "$set": {
+                    "contentHash": new_hash,
+                    "updatedAt": datetime.utcnow()
+                }
+            }
+        )
+```
+
+---
+
+# Crime Hotspot Detection with MongoDB GeoJSON
+
+```python
+from sklearn.cluster import DBSCAN
+import numpy as np
+
+def detect_hotspots(
+    district_id: int,
+    from_date: datetime,
+    to_date: datetime,
+    crime_head_id: int = None,
+    eps_meters: float = 500,               // 500m cluster radius
+    min_cases: int = 5                      // Minimum cases to form hotspot
+):
+    """
+    DBSCAN clustering on MongoDB geo data.
+    Returns hotspot clusters for map visualization.
+    """
+
+    # Fetch coordinates from MongoDB
+    query = {
+        "districtID": district_id,
+        "crimeRegisteredDate": {"$gte": from_date, "$lt": to_date},
+        "location": {"$exists": True},
+        "isActive": True
+    }
+    if crime_head_id:
+        query["crimeMajorHeadID"] = crime_head_id
+
+    cases = mongo_db.caseMaster.find(
+        query,
+        {
+            "crimeNo": 1,
+            "location.coordinates": 1,
+            "crimeMinorHeadName": 1,
+            "crimeRegisteredDate": 1
+        }
+    )
+
+    # Extract coordinates
+    coords = []
+    metadata = []
+    for c in cases:
+        lon, lat = c["location"]["coordinates"]
+        coords.append([lat, lon])          // DBSCAN expects [lat, lon]
+        metadata.append(c)
+
+    if len(coords) < min_cases:
+        return {"hotspots": [], "total_cases": len(coords)}
+
+    # Convert meters to degrees (approximate)
+    eps_deg = eps_meters / 111320           // 1 degree ≈ 111.32 km
+
+    # Run DBSCAN
+    clustering = DBSCAN(
+        eps=eps_deg,
+        min_samples=min_cases,
+        metric='haversine',
+        algorithm='ball_tree'
+    ).fit(np.radians(coords))
+
+    # Build hotspot results
+    hotspots = []
+    labels = clustering.labels_
+    unique_labels = set(labels) - {-1}      // Exclude noise points
+
+    for label in unique_labels:
+        cluster_indices = np.where(labels == label)[0]
+        cluster_coords = np.array(coords)[cluster_indices]
+        center_lat = cluster_coords[:, 0].mean()
+        center_lon = cluster_coords[:, 1].mean()
+
+        # Crime type distribution in cluster
+        crime_types = {}
+        for idx in cluster_indices:
+            ct = metadata[idx].get("crimeMinorHeadName", "Unknown")
+            crime_types[ct] = crime_types.get(ct, 0) + 1
+
+        hotspots.append({
+            "hotspot_id": int(label),
+            "center": {
+                "type": "Point",
+                "coordinates": [float(center_lon), float(center_lat)]
+            },
+            "case_count": int(len(cluster_indices)),
+            "radius_meters": int(eps_meters),
+            "crime_type_distribution": crime_types,
+            "top_crime_type": max(crime_types, key=crime_types.get),
+            "cases": [
+                {
+                    "crime_no": metadata[idx]["crimeNo"],
+                    "type": metadata[idx].get("crimeMinorHeadName"),
+                    "date": metadata[idx]["crimeRegisteredDate"].isoformat()
+                }
+                for idx in cluster_indices
+            ]
+        })
+
+    # Sort by case count
+    hotspots.sort(key=lambda h: h["case_count"], reverse=True)
+
+    return {
+        "hotspots": hotspots,
+        "total_cases": len(coords),
+        "noise_cases": int(np.sum(labels == -1)),
+        "parameters": {
+            "district_id": district_id,
+            "eps_meters": eps_meters,
+            "min_cases": min_cases,
+            "date_range": {
+                "from": from_date.isoformat(),
+                "to": to_date.isoformat()
+            }
+        }
+    }
+```
+
+---
+
+# Predictive Analytics — XGBoost on MongoDB Data
+
+```python
+import xgboost as xgb
+import pandas as pd
+import shap
+
+def build_prediction_features(district_id: int, months_back: int = 24) -> pd.DataFrame:
+    """
+    Extract time-series features from MongoDB for crime prediction.
+    """
+
+    pipeline = [
+        {
+            "$match": {
+                "districtID": district_id,
+                "crimeRegisteredDate": {
+                    "$gte": datetime.utcnow() - timedelta(days=months_back * 30)
+                },
+                "isActive": True
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "year": { "$year": "$crimeRegisteredDate" },
+                    "month": { "$month": "$crimeRegisteredDate" },
+                    "crimeHead": "$crimeMajorHeadID"
+                },
+                "count": { "$sum": 1 },
+                "heinous": {
+                    "$sum": { "$cond": [{ "$eq": ["$gravityOffenceID", 1] }, 1, 0] }
+                },
+                "chargeSheeted": {
+                    "$sum": { "$cond": [{ "$eq": ["$caseStatusID", 3] }, 1, 0] }
+                },
+                "arrests": { "$sum": { "$size": "$arrestSurrenders" } }
+            }
+        },
+        { "$sort": { "_id.year": 1, "_id.month": 1, "_id.crimeHead": 1 } }
+    ]
+
+    monthly_data = list(mongo_db.caseMaster.aggregate(pipeline))
+
+    # Build feature DataFrame
+    rows = []
+    for entry in monthly_data:
+        rows.append({
+            "year": entry["_id"]["year"],
+            "month": entry["_id"]["month"],
+            "crime_head_id": entry["_id"]["crimeHead"],
+            "total_cases": entry["count"],
+            "heinous_cases": entry["heinous"],
+            "charge_sheeted": entry["chargeSheeted"],
+            "arrests": entry["arrests"]
+        })
+
+    df = pd.DataFrame(rows)
+
+    # Add lag features (previous month, same month last year)
+    df = df.sort_values(["crime_head_id", "year", "month"])
+    df["prev_month_cases"] = df.groupby("crime_head_id")["total_cases"].shift(1)
+    df["same_month_last_year"] = df.groupby("crime_head_id")["total_cases"].shift(12)
+    df["month_over_month_change"] = (
+        df["total_cases"] - df["prev_month_cases"]
+    ) / df["prev_month_cases"].replace(0, 1)
+
+    # Add time features
+    df["is_festive_season"] = df["month"].isin([10, 11, 12, 1, 3, 4]).astype(int)
+    df["is_monsoon"] = df["month"].isin([6, 7, 8, 9]).astype(int)
+
+    return df.dropna()
+
+
+def train_predictor(district_id: int):
+    """Train XGBoost model and return predictions with SHAP explanations."""
+
+    df = build_prediction_features(district_id)
+
+    feature_cols = [
+        "prev_month_cases", "same_month_last_year",
+        "month_over_month_change", "heinous_cases",
+        "charge_sheeted", "arrests",
+        "is_festive_season", "is_monsoon"
+    ]
+
+    X = df[feature_cols]
+    y = df["total_cases"]
+
+    # Train
+    model = xgb.XGBRegressor(
+        n_estimators=100,
+        max_depth=4,
+        learning_rate=0.1,
+        random_state=42
+    )
+    model.fit(X, y)
+
+    # Predict next month
+    latest = df[df.groupby("crime_head_id")["year"].rank(
+        method="dense", ascending=False
+    ) == 1]
+
+    predictions = []
+    explainer = shap.TreeExplainer(model)
+
+    for _, row in latest.iterrows():
+        features = row[feature_cols].values.reshape(1, -1)
+        pred = model.predict(features)[0]
+
+        # SHAP explanation
+        shap_values = explainer.shap_values(features)
+        top_factors = sorted(
+            zip(feature_cols, shap_values[0]),
+            key=lambda x: abs(x[1]),
+            reverse=True
+        )[:3]
+
+        predictions.append({
+            "crime_head_id": int(row["crime_head_id"]),
+            "predicted_cases_next_month": round(float(pred), 1),
+            "previous_month_actual": int(row["total_cases"]),
+            "change_percent": round(
+                ((pred - row["total_cases"]) / row["total_cases"]) * 100, 1
+            ),
+            "risk_level": (
+                "HIGH" if pred > row["total_cases"] * 1.2
+                else "MEDIUM" if pred > row["total_cases"] * 1.05
+                else "LOW"
+            ),
+            "key_factors": [
+                {"feature": f, "impact": round(float(v), 2)}
+                for f, v in top_factors
+            ]
+        })
+
+    predictions.sort(key=lambda p: p["predicted_cases_next_month"], reverse=True)
+
+    return {
+        "district_id": district_id,
+        "prediction_month": "next",
+        "predictions": predictions,
+        "model_performance": {
+            "training_samples": len(df),
+            "features_used": feature_cols
+        }
+    }
+```
+
+---
+
+# Entity Resolution — Fuzzy Matching Across Cases
+
+```python
+from rapidfuzz import fuzz, process
+
+def find_duplicate_accused(
+    name: str,
+    threshold: float = 85,
+    max_results: int = 10
+):
+    """
+    Find potential duplicate accused across all cases using fuzzy matching.
+    Uses MongoDB text index + rapidfuzz for scoring.
+    """
+
+    # Step 1: Coarse filter using MongoDB text search
+    # Split name into tokens for broader search
+    tokens = name.split()
+    text_query = " ".join(tokens[:2])       // Use first 2 name parts
+
+    candidates = mongo_db.caseMaster.find(
+        {
+            "accused.accusedName": { "$regex": tokens[0], "$options": "i" },
+            "isActive": True
+        },
+        {
+            "crimeNo": 1,
+            "districtName": 1,
+            "accused.accusedName": 1,
+            "accused.accusedMasterID": 1,
+            "accused.personID": 1,
+            "accused.ageYear": 1,
+            "accused.genderID": 1
+        }
+    ).limit(200)
+
+    # Step 2: Fine-grained fuzzy matching
+    matches = []
+    seen_ids = set()
+
+    for case in candidates:
+        for accused in case.get("accused", []):
+            if accused["accusedMasterID"] in seen_ids:
+                continue
+            seen_ids.add(accused["accusedMasterID"])
+
+            # Multiple fuzzy matching strategies
+            ratio = fuzz.ratio(name, accused["accusedName"])
+            partial = fuzz.partial_ratio(name, accused["accusedName"])
+            token_sort = fuzz.token_sort_ratio(name, accused["accusedName"])
+            token_set = fuzz.token_set_ratio(name, accused["accusedName"])
+
+            # Best score across strategies
+            best_score = max(ratio, partial, token_sort, token_set)
+
+            if best_score >= threshold:
+                matches.append({
+                    "matched_name": accused["accusedName"],
+                    "score": best_score,
+                    "match_type": (
+                        "exact" if ratio == 100
+                        else "partial" if partial == best_score
+                        else "token_sort" if token_sort == best_score
+                        else "token_set"
+                    ),
+                    "crime_no": case["crimeNo"],
+                    "district": case["districtName"],
+                    "age": accused.get("ageYear"),
+                    "gender": accused.get("genderID"),
+                    "person_id": accused.get("personID"),
+                    "accused_master_id": accused["accusedMasterID"]
+                })
+
+    # Sort by best score
+    matches.sort(key=lambda m: m["score"], reverse=True)
+    return matches[:max_results]
+```
+
+---
+
+# FastAPI Backend — Key Endpoints
+
+```python
+from fastapi import FastAPI, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
+
+app = FastAPI(title="Karnataka Police Crime Intelligence API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+# SCHEMAS
+# ============================================================
+
+class ChatRequest(BaseModel):
+    question: str
+    district: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+class CrimeSearchRequest(BaseModel):
+    query: Optional[str] = None
+    district_id: Optional[int] = None
+    station_id: Optional[int] = None
+    crime_head_id: Optional[int] = None
+    from_date: Optional[datetime] = None
+    to_date: Optional[datetime] = None
+    status_id: Optional[int] = None
+    gravity_id: Optional[int] = None
+    act_code: Optional[str] = None
+    section_code: Optional[str] = None
+    accused_name: Optional[str] = None
+    victim_name: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    radius_km: Optional[float] = 5.0
+    page: int = 1
+    page_size: int = 20
+    sort_by: str = "date_desc"
+
+
+# ============================================================
+# ENDPOINTS
+# ============================================================
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "database": "mongodb", "timestamp": datetime.utcnow()}
+
+
+@app.post("/api/chat")
+async def chat(request: ChatRequest):
+    """AI-powered conversational query on crime data."""
+    result = answer_question(
+        question=request.question,
+        district=request.district
+    )
+    return result
+
+
+@app.post("/api/search")
+async def search_crimes(req: CrimeSearchRequest):
+    """Advanced crime search with multiple filter combinations."""
+
+    query_filter = {"isActive": True}
+
+    if req.district_id:
+        query_filter["districtID"] = req.district_id
+    if req.station_id:
+        query_filter["policeStationID"] = req.station_id
+    if req.crime_head_id:
+        query_filter["crimeMajorHeadID"] = req.crime_head_id
+    if req.status_id:
+        query_filter["caseStatusID"] = req.status_id
+    if req.gravity_id:
+        query_filter["gravityOffenceID"] = req.gravity_id
+    if req.from_date or req.to_date:
+        date_filter = {}
+        if req.from_date:
+            date_filter["$gte"] = req.from_date
+        if req.to_date:
+            date_filter["$lt"] = req.to_date
+        query_filter["crimeRegisteredDate"] = date_filter
+    if req.act_code:
+        query_filter["actSections.actCode"] = req.act_code
+    if req.section_code:
+        query_filter["actSections.sectionCode"] = req.section_code
+    if req.accused_name:
+        query_filter["accused.accusedName"] = {
+            "$regex": req.accused_name, "$options": "i"
+        }
+    if req.victim_name:
+        query_filter["victims.victimName"] = {
+            "$regex": req.victim_name, "$options": "i"
+        }
+
+    # Geospatial filter
+    if req.lat and req.lon:
+        query_filter["location"] = {
+            "$near": {
+                "$geometry": {
+                    "type": "Point",
+                    "coordinates": [req.lon, req.lat]
+                },
+                "$maxDistance": req.radius_km * 1000
+            }
+        }
+
+    # Full-text search
+    if req.query:
+        query_filter["$text"] = {"$search": req.query}
+
+    # Sort
+    sort_map = {
+        "date_desc": [("crimeRegisteredDate", -1)],
+        "date_asc": [("crimeRegisteredDate", 1)],
+        "gravity_desc": [("gravityOffenceID", 1)],
+    }
+    sort = sort_map.get(req.sort_by, sort_map["date_desc"])
+
+    # Pagination
+    skip = (req.page - 1) * req.page_size
+    total = mongo_db.caseMaster.count_documents(query_filter)
+    cases = list(
+        mongo_db.caseMaster.find(query_filter)
+        .sort(sort)
+        .skip(skip)
+        .limit(req.page_size)
+    )
+
+    # Remove MongoDB _id
+    for c in cases:
+        c.pop("_id", None)
+
+    return {
+        "total": total,
+        "page": req.page,
+        "page_size": req.page_size,
+        "total_pages": (total + req.page_size - 1) // req.page_size,
+        "results": cases
+    }
+
+
+@app.get("/api/cases/{crime_no}")
+async def get_case(crime_no: str):
+    """Get full case details by Crime Number."""
+    case = mongo_db.caseMaster.find_one(
+        {"crimeNo": crime_no, "isActive": True},
+        {"_id": 0}
+    )
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return case
+
+
+@app.get("/api/dashboard/district-summary")
+async def district_summary(
+    from_date: datetime = Query(...),
+    to_date: datetime = Query(...)
+):
+    """District-wise crime statistics for dashboard."""
+    pipeline = [
+        {
+            "$match": {
+                "crimeRegisteredDate": {"$gte": from_date, "$lt": to_date},
+                "isActive": True
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "districtID": "$districtID",
+                    "districtName": "$districtName"
+                },
+                "totalCases": {"$sum": 1},
+                "heinous": {
+                    "$sum": {"$cond": [{"$eq": ["$gravityOffenceID", 1]}, 1, 0]}
+                },
+                "chargeSheeted": {
+                    "$sum": {"$cond": [{"$eq": ["$caseStatusID", 3]}, 1, 0]}
+                },
+                "pending": {
+                    "$sum": {"$cond": [{"$in": ["$caseStatusID", [1, 2]]}, 1, 0]}
+                },
+                "undetected": {
+                    "$sum": {"$cond": [{"$eq": ["$caseStatusID", 5]}, 1, 0]}
+                },
+                "totalArrests": {"$sum": {"$size": "$arrestSurrenders"}},
+                "totalAccused": {"$sum": {"$size": "$accused"}}
+            }
+        },
+        {"$sort": {"totalCases": -1}}
+    ]
+
+    results = list(mongo_db.caseMaster.aggregate(pipeline))
+    return {"date_range": {"from": from_date, "to": to_date}, "districts": results}
+
+
+@app.get("/api/hotspots")
+async def get_hotspots(
+    district_id: int = Query(...),
+    crime_head_id: Optional[int] = None,
+    months: int = Query(6, ge=1, le=24),
+    radius_m: float = Query(500, ge=100, ge=2000),
+    min_cases: int = Query(5, ge=3)
+):
+    """Detect crime hotspots using DBSCAN clustering."""
+    from_date = datetime.utcnow() - timedelta(days=months * 30)
+    result = detect_hotspots(
+        district_id=district_id,
+        from_date=from_date,
+        to_date=datetime.utcnow(),
+        crime_head_id=crime_head_id,
+        eps_meters=radius_m,
+        min_cases=min_cases
+    )
+    return result
+
+
+@app.get("/api/predict/{district_id}")
+async def predict_crime(district_id: int):
+    """Predict next month's crime trends for a district."""
+    result = train_predictor(district_id)
+    return result
+
+
+@app.get("/api/network/{accused_name}")
+async def get_network(accused_name: str):
+    """Get criminal network graph for a person."""
+    # Seed from MongoDB
+    mongo_results = mongo_db.caseMaster.aggregate([
+        {"$unwind": "$accused"},
+        {
+            "$match": {
+                "accused.accusedName": {
+                    "$regex": accused_name, "$options": "i"
+                },
+                "isActive": True
+            }
+        },
+        {
+            "$project": {
+                "crimeNo": 1,
+                "coAccused": "$accused",
+                "allAccused": "$accused"
+            }
+        }
+    ])
+
+    # Query Neo4j for full network
+    with neo4j_driver.session() as session:
+        graph_result = session.run("""
+            MATCH (p:Person {name: $name})
+            OPTIONAL MATCH path = (p)-[:ASSOCIATED_WITH*1..3]-(connected:Person)
+            OPTIONAL MATCH (p)-[:ACCUSED_IN]->(c:Case)
+            RETURN p, connected, c, path
+            LIMIT 100
+        """, name=accused_name)
+
+        nodes = []
+        edges = []
+        for record in graph_result:
+            # Build nodes and edges for Cytoscape.js
+            ...
+        return {"nodes": nodes, "edges": edges}
+
+
+@app.get("/api/similar/{crime_no}")
+async def find_similar(crime_no: str, top_k: int = 5):
+    """Find cases similar to a given case using semantic search."""
+    similar = find_similar_cases(crime_no, top_k=top_k)
+
+    # Fetch full details for similar cases
+    crime_nos = [s.payload["crime_no"] for s in similar]
+    cases = list(mongo_db.caseMaster.find(
+        {"crimeNo": {"$in": crime_nos}},
+        {"_id": 0, "crimeNo": 1, "crimeMinorHeadName": 1,
+         "crimeRegisteredDate": 1, "districtName": 1,
+         "briefFacts": 1, "actSections.actCode": 1,
+         "actSections.sectionCode": 1}
+    ))
+
+    return {
+        "reference_case": crime_no,
+        "similar_cases": [
+            {
+                **c,
+                "similarity_score": round(s.score, 3)
+            }
+            for c, s in zip(cases, similar)
+        ]
+    }
+
+
+@app.get("/api/entity-resolve")
+async def resolve_entity(name: str, threshold: float = 85):
+    """Find potential duplicate persons across cases."""
+    matches = find_duplicate_accused(name, threshold=threshold)
+    return {"query_name": name, "matches": matches}
+
+
+@app.get("/api/stats/crime-heads")
+async def crime_head_stats(
+    district_id: Optional[int] = None,
+    from_date: datetime = Query(...),
+    to_date: datetime = Query(...)
+):
+    """Crime head-wise breakdown."""
+    match_stage = {
+        "crimeRegisteredDate": {"$gte": from_date, "$lt": to_date},
+        "isActive": True
+    }
+    if district_id:
+        match_stage["districtID"] = district_id
+
+    pipeline = [
+        {"$match": match_stage},
+        {
+            "$group": {
+                "_id": {
+                    "majorHead": "$crimeMajorHeadName",
+                    "minorHead": "$crimeMinorHeadName",
+                    "majorHeadID": "$crimeMajorHeadID",
+                    "minorHeadID": "$crimeMinorHeadID"
+                },
+                "count": {"$sum": 1},
+                "heinous": {
+                    "$sum": {"$cond": [{"$eq": ["$gravityOffenceID", 1]}, 1, 0]}
+                }
+            }
+        },
+        {"$sort": {"count": -1}}
+    ]
+
+    return {"results": list(mongo_db.caseMaster.aggregate(pipeline))}
+```
+
+---
+
+# Frontend — Next.js + Tailwind + shadcn/ui
+
+**(Unchanged from original — these are database-agnostic)**
+
+```text
+Next.js
+├── Tailwind CSS
+├── shadcn/ui
+├── Leaflet (maps + hotspots)
+├── Cytoscape.js (network graphs)
+├── Recharts (charts)
+└── TypeScript
+```
+
+---
+
+# Deployment — MongoDB Atlas
+
+```text
+┌─────────────────────────────────────────────────────┐
+│                   DEPLOYMENT                         │
+├─────────────────────────────────────────────────────┤
+│                                                      │
+│  Frontend:    Vercel                          (Free) │
+│  Backend:     Railway / Render                 (Free)│
+│                                                      │
+│  MongoDB:     MongoDB Atlas                   (Free) │
+│               ├── M0 Cluster (512MB)                  │
+│               ├── Atlas Search (full-text)            │
+│               ├── Atlas Charts (dashboards)           │
+│               └── Atlas Triggers (sync)               │
+│                                                      │
+│  Neo4j:       Neo4j AuraDB Free Tier           (Free)│
+│                                                      │
+│  Qdrant:      Qdrant Cloud Free Tier           (Free)│
+│                                                      │
+│  AI:          Google Gemini API                (Free)│
+│                                                      │
+│  TOTAL COST: ₹0 / month for hackathon MVP             │
+│                                                      │
+└─────────────────────────────────────────────────────┘
+```
+
+### MongoDB Atlas Connection
+
+```python
+from pymongo import MongoClient
+
+# Atlas connection string
+MONGO_URI = "mongodb+srv://hackathon:user@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority"
+
+client = MongoClient(MONGO_URI)
+db = client["karnataka_police_fir"]
+
+# Collections
+caseMaster = db["caseMaster"]
+units = db["units"]
+employees = db["employees"]
+acts = db["acts"]
+crimeHeads = db["crimeHeads"]
+districts = db["districts"]
+states = db["states"]
+courts = db["courts"]
+caseCategories = db["caseCategories"]
+caseStatuses = db["caseStatuses"]
+gravityOffences = db["gravityOffences"]
+ranks = db["ranks"]
+designations = db["designations"]
+unitTypes = db["unitTypes"]
+religions = db["religions"]
+castes = db["castes"]
+occupations = db["occupations"]
+caseAuditLog = db["caseAuditLog"]
+```
+
+---
+
+# Hackathon MVP Stack — Final Summary
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                HACKATHON WINNING STACK                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  FRONTEND                                                    │
+│  ├── Next.js + TypeScript                                    │
+│  ├── Tailwind CSS + shadcn/ui                                │
+│  ├── Leaflet (crime hotspot maps)                            │
+│  └── Cytoscape.js (criminal network graphs)                  │
+│                                                              │
+│  BACKEND                                                     │
+│  └── FastAPI (Python)                                        │
+│                                                              │
+│  DATABASES                                                   │
+│  ├── MongoDB Atlas        ← FIR records, embeddings flag     │
+│  │   ├── 21 collections                                        │
+│  │   ├── GeoJSON 2dsphere indexes                            │
+│  │   ├── Text search indexes                                 │
+│  │   └── Aggregation pipelines for analytics                 │
+│  ├── Neo4j AuraDB          ← Criminal networks               │
+│  └── Qdrant Cloud          ← Semantic FIR search             │
+│                                                              │
+│  AI / ML                                                     │
+│  ├── Gemini 2.5 Pro         ← RAG answers                    │
+│  ├── LangChain              ← Orchestration                   │
+│  ├── Sentence Transformers  ← FIR embeddings (MiniLM-L6-v2)  │
+│  ├── XGBoost                ← Crime prediction                │
+│  ├── SHAP                   ← Explainable AI                 │
+│  ├── DBSCAN                 ← Hotspot detection              │
+│  └── RapidFuzz              ← Entity resolution              │
+│                                                              │
+│  VOICE (if time permits)                                     │
+│  ├── Whisper STT           ← Kannada + English               │
+│  └── Google TTS            ← Response audio                  │
+│                                                              │
+│  COST: ₹0                                                  │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│  CAPABILITIES                                                │
+│  ✅ Conversational AI with evidence                          │
+│  ✅ Advanced crime search (15+ filter combos)                │
+│  ✅ Semantic FIR search ("night burglaries jewelry")         │
+│  ✅ Criminal network analysis (graph)                        │
+│  ✅ Crime hotspot detection (geospatial clustering)          │
+│  ✅ Similar case discovery (vector similarity)               │
+│  ✅ Predictive crime risk (XGBoost + SHAP)                   │
+│  ✅ Entity resolution (fuzzy name matching)                  │
+│  ✅ District/station dashboards (MongoDB aggregation)        │
+│  ✅ GeoJSON native queries (nearby crimes)                   │
+│  ✅ Full-text search on FIR narratives                       │
+│  ✅ Explainable AI (never unsupported answers)               │
+│  ✅ Immutable audit trail                                    │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+# Key MongoDB Advantages Realized in This Design
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  RELATIONAL (Old)              MONGODB (New)                 │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  SELECT * FROM CaseMaster     db.caseMaster.findOne(         │
+│  JOIN ComplainantDetails        {crimeNo: "10443..."}        │
+│  JOIN Victim                     // Everything in ONE read   │
+│  JOIN Accused                                               │
+│  JOIN ActSectionAssociation    // No JOINs needed            │
+│  JOIN ArrestSurrender          // Single document = speed    │
+│  JOIN ChargesheetDetails                                     │
+│  JOIN Employee                                               │
+│  JOIN Unit                                                   │
+│  JOIN District                                              │
+│  JOIN CaseStatusMaster          // 15 JOINs → 0 JOINs       │
+│  JOIN CrimeHead                                             │
+│  JOIN CrimeSubHead                                           │
+│  JOIN GravityOffence                                         │
+│  JOIN Court                                                  │
+│  WHERE CrimeNo = '...'                                      │
+│                                                              │
+│  15 table JOINs                 1 document read              │
+│  ~50ms on PostgreSQL            ~2ms on MongoDB Atlas        │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  PostGIS:                       MongoDB native:              │
+│  SELECT *, ST_Distance(         db.caseMaster.find({         │
+│    point, location) < 2000       location: {                 │
+│  FROM cases                       $near: {                   │
+│                                   $geometry: {...},          │
+│                                   $maxDistance: 2000         │
+│                                 }                            │
+│                               })                             │
+│                                                              │
+│  Requires PostGIS extension     Built-in, no extension       │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Full-text search:              MongoDB text index:          │
+│  Requires pg_trgm + GIN        Already indexed, no ext      │
+│  Complex setup                  Simple { $text: {...} }     │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Schema change:                 Schema change:               │
+│  ALTER TABLE ...                Just add field to doc       │
+│  (downtime, migration)          (zero downtime)              │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Analytics:                     Aggregation Pipeline:        │
+│  Complex CTEs + GROUP BY       $match → $group → $sort     │
+│  Hard to compose                Composable, powerful         │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
