@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { MapPin, Layers, Filter } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -72,6 +72,11 @@ export function MapView() {
   const [selectedFir, setSelectedFir] = useState<MapFir | null>(null)
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set())
 
+  const mapRef = useRef<L.Map | null>(null)
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const crimeLayerRef = useRef<L.LayerGroup | null>(null)
+  const stationLayerRef = useRef<L.LayerGroup | null>(null)
+
   const firs: MapFir[] = data?.firs || []
   const stations: MapStation[] = data?.stations || []
 
@@ -80,12 +85,6 @@ export function MapView() {
     if (filterMode === 'crimeType') return [...new Set(firs.map((f) => f.crimeType))].sort()
     return ['Open', 'Under Investigation', 'Closed']
   }, [filterMode, firs])
-
-  const getFilterValue = (fir: MapFir) => {
-    if (filterMode === 'severity') return fir.severity
-    if (filterMode === 'crimeType') return fir.crimeType
-    return fir.status
-  }
 
   const toggleFilter = (val: string) => {
     setActiveFilters((prev) => {
@@ -98,7 +97,11 @@ export function MapView() {
 
   const filteredFirs = useMemo(() => {
     if (activeFilters.size === 0) return firs
-    return firs.filter((f) => activeFilters.has(getFilterValue(f)))
+    return firs.filter((f) => {
+      if (filterMode === 'severity') return activeFilters.has(f.severity)
+      if (filterMode === 'crimeType') return activeFilters.has(f.crimeType)
+      return activeFilters.has(f.status)
+    })
   }, [firs, activeFilters, filterMode])
 
   const getMarkerColor = (fir: MapFir) => {
@@ -106,10 +109,11 @@ export function MapView() {
     return crimeTypeColors[fir.crimeType] || '#f97316'
   }
 
+  // Initialize map
   useEffect(() => {
-    if (!data || typeof window === 'undefined') return
+    if (!mapContainerRef.current || mapRef.current) return
 
-    const map = L.map('crime-map', {
+    const map = L.map(mapContainerRef.current, {
       center: [13.0, 77.5],
       zoom: 8,
       zoomControl: true,
@@ -120,7 +124,27 @@ export function MapView() {
       maxZoom: 18,
     }).addTo(map)
 
-    // Station markers
+    const crimeLayer = L.layerGroup().addTo(map)
+    const stationLayer = L.layerGroup().addTo(map)
+
+    mapRef.current = map
+    crimeLayerRef.current = crimeLayer
+    stationLayerRef.current = stationLayer
+
+    return () => {
+      map.remove()
+      mapRef.current = null
+      crimeLayerRef.current = null
+      stationLayerRef.current = null
+    }
+  }, [])
+
+  // Update station markers when data loads
+  useEffect(() => {
+    if (!stationLayerRef.current || stations.length === 0) return
+
+    stationLayerRef.current.clearLayers()
+
     const stationIcon = L.divIcon({
       html: `<div style="width:28px;height:28px;background:#1e40af;border:2px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div>`,
       iconSize: [28, 28],
@@ -130,7 +154,7 @@ export function MapView() {
 
     stations.forEach((s) => {
       L.marker([s.latitude, s.longitude], { icon: stationIcon })
-        .addTo(map)
+        .addTo(stationLayerRef.current!)
         .bindPopup(
           `<div style="font-family:system-ui;min-width:180px">
             <strong style="font-size:13px">${s.name}</strong><br/>
@@ -140,42 +164,24 @@ export function MapView() {
           { className: 'custom-popup' }
         )
     })
+  }, [stations])
 
-    return () => {
-      map.remove()
-    }
-  }, [data, stations])
-
-  // Update FIR markers when filters change
+  // Update crime markers when filters change
   useEffect(() => {
-    if (!data || typeof window === 'undefined') return
+    if (!crimeLayerRef.current) return
 
-    const map = (window as unknown as Record<string, L.Map>)['crime-map_instance']
-    // Use a global ref approach - re-create all crime markers
-    const container = document.getElementById('crime-map')
-    if (!container) return
-
-    // We'll overlay markers via a separate layer group
-    // Access the map from the container
-    const mapEl = container as unknown as Record<string, unknown>
-    let existingMap = mapEl._leaflet_map as L.Map | undefined
-
-    if (!existingMap) return
-
-    // Remove old crime markers
-    const oldGroup = mapEl._crime_layer as L.LayerGroup | undefined
-    if (oldGroup) existingMap.removeLayer(oldGroup)
-
-    const crimeLayer = L.layerGroup()
+    crimeLayerRef.current.clearLayers()
 
     filteredFirs.forEach((fir) => {
       const color = getMarkerColor(fir)
       const opacity = severityOpacity[fir.severity] || 0.5
+      const isCritical = fir.severity === 'Critical'
+      const size = isCritical ? 16 : 12
 
       const icon = L.divIcon({
-        html: `<div style="width:${fir.severity === 'Critical' ? 16 : 12}px;height:${fir.severity === 'Critical' ? 16 : 12}px;background:${color};opacity:${opacity};border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>`,
-        iconSize: [fir.severity === 'Critical' ? 16 : 12, fir.severity === 'Critical' ? 16 : 12],
-        iconAnchor: [fir.severity === 'Critical' ? 8 : 6, fir.severity === 'Critical' ? 8 : 6],
+        html: `<div style="width:${size}px;height:${size}px;background:${color};opacity:${opacity};border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
         className: '',
       })
 
@@ -191,34 +197,9 @@ export function MapView() {
         { className: 'custom-popup' }
       )
       marker.on('click', () => setSelectedFir(fir))
-      crimeLayer.addLayer(marker)
+      crimeLayerRef.current!.addLayer(marker)
     })
-
-    crimeLayer.addTo(existingMap)
-    mapEl._crime_layer = crimeLayer
-  }, [data, filteredFirs, filterMode])
-
-  // Store map instance globally for marker updates
-  useEffect(() => {
-    if (!data || typeof window === 'undefined') return
-    const interval = setInterval(() => {
-      const container = document.getElementById('crime-map')
-      if (!container) return
-      const mapEl = container as unknown as Record<string, unknown>
-      // @ts-expect-error leaflet internal
-      if (container._leaflet_id) {
-        // @ts-expect-error leaflet internal
-        const mapInstance = L.Map._instances?.find(
-          (m: L.Map) => m.getContainer() === container
-        )
-        if (mapInstance) {
-          mapEl._leaflet_map = mapInstance
-          clearInterval(interval)
-        }
-      }
-    }, 200)
-    return () => clearInterval(interval)
-  }, [data])
+  }, [filteredFirs, filterMode, getMarkerColor])
 
   if (isLoading) return <MapSkeleton />
 
@@ -237,7 +218,7 @@ export function MapView() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Map */}
         <Card className="lg:col-span-3 p-0 overflow-hidden">
-          <div id="crime-map" className="w-full" style={{ height: '520px' }} />
+          <div ref={mapContainerRef} className="w-full" style={{ height: '520px' }} />
         </Card>
 
         {/* Sidebar */}
@@ -278,8 +259,8 @@ export function MapView() {
                       className="text-[11px] px-2 py-1 rounded-md border transition-all cursor-pointer"
                       style={{
                         borderColor: isActive ? color : 'transparent',
-                        backgroundColor: isActive ? `${color}15` : '#f3f4f6',
-                        color: isActive ? color : '#6b7280',
+                        backgroundColor: isActive ? `${color}15` : 'var(--muted)',
+                        color: isActive ? color : 'var(--muted-foreground)',
                       }}
                     >
                       {opt}
@@ -362,7 +343,7 @@ export function MapView() {
                   {selectedFir.station} • {selectedFir.district} • {new Date(selectedFir.date).toLocaleDateString('en-IN')}
                 </p>
               </div>
-              <Button variant="ghost" size="sm" className="text-xs" onClick={() => setSelectedFir(null)}>
+              <Button variant="ghost" size="sm" className="text-xs cursor-pointer" onClick={() => setSelectedFir(null)}>
                 Close
               </Button>
             </div>
