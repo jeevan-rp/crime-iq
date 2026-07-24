@@ -1,0 +1,578 @@
+     1→import { db } from '../src/lib/db';
+     2→
+     3→async function main() {
+     4→  console.log('🗑️  Deleting all existing data...');
+     5→
+     6→  await db.suspect.deleteMany();
+     7→  await db.victim.deleteMany();
+     8→  await db.link.deleteMany();
+     9→  await db.fir.deleteMany();
+    10→  await db.person.deleteMany();
+    11→  await db.station.deleteMany();
+    12→  await db.prediction.deleteMany();
+    13→
+    14→  console.log('✅ All existing data deleted.');
+    15→
+    16→  // ─── Stations ───────────────────────────────────────────────
+    17→  console.log('📍 Creating stations...');
+    18→  const stations = await db.station.createMany({
+    19→    data: [
+    20→      { name: 'Koramangala Police Station', district: 'Bengaluru Urban', latitude: 12.9352, longitude: 77.6245, officers: 28 },
+    21→      { name: 'Whitefield Police Station', district: 'Bengaluru Urban', latitude: 12.9698, longitude: 77.7500, officers: 22 },
+    22→      { name: 'HSR Layout Police Station', district: 'Bengaluru Urban', latitude: 12.9116, longitude: 77.6389, officers: 24 },
+    23→      { name: 'JP Nagar Police Station', district: 'Bengaluru Urban', latitude: 12.8930, longitude: 77.5850, officers: 20 },
+    24→      { name: 'Bengaluru Rural SP Office', district: 'Bengaluru Rural', latitude: 12.9716, longitude: 77.5946, officers: 15 },
+    25→      { name: 'Mysuru City Police Station', district: 'Mysuru', latitude: 12.2958, longitude: 76.6394, officers: 32 },
+    26→      { name: 'Hubballi-Dharwad Police Commissionerate', district: 'Hubballi-Dharwad', latitude: 15.3647, longitude: 75.1240, officers: 35 },
+    27→      { name: 'Mangaluru City Police Station', district: 'Mangaluru', latitude: 12.9141, longitude: 74.8560, officers: 26 },
+    28→    ],
+    29→  });
+    30→  console.log(`  Created ${stations.count} stations.`);
+    31→
+    32→  // ─── Persons ────────────────────────────────────────────────
+    33→  console.log('👤 Creating persons...');
+    34→  const personData = [
+    35→    { name: 'Ravi Shankar Gupta', age: 34, address: 'No. 42, 4th Cross, Koramangala 5th Block, Bengaluru', phone: '+91-9845012345', aadhaar: '5678-9012-3456' },
+    36→    { name: 'Priya Venkatesh', age: 28, address: 'Flat 301, Prestige Shantiniketan, Whitefield, Bengaluru', phone: '+91-9886023456', aadhaar: '6789-0123-4567' },
+    37→    { name: 'Mohammed Irfan Ali', age: 42, address: 'No. 78, Circle Mysore Road, Bengaluru', phone: '+91-9745034567', aadhaar: '7890-1234-5678' },
+    38→    { name: 'Kiran Naidu', age: 26, address: '2nd Floor, HSR Layout Sector 2, Bengaluru', phone: '+91-9664045678', aadhaar: '8901-2345-6789' },
+    39→    { name: 'Lakshmi Devi Sharma', age: 55, address: 'No. 15, JP Nagar 7th Phase, Bengaluru', phone: '+91-9823056789', aadhaar: '9012-3456-7890' },
+    40→    { name: 'Suresh Babu Reddy', age: 38, address: 'D.No. 3-56, Anekal Taluk, Bengaluru Rural', phone: '+91-9445067890', aadhaar: '0123-4567-8901' },
+    41→    { name: 'Anand Kumar Mehta', age: 31, address: 'Plot 12, Gokulam 3rd Stage, Mysuru', phone: '+91-9866078901', aadhaar: '1234-5678-9012' },
+    42→    { name: 'Geetha Narasimha', age: 45, address: 'No. 89, Sayyaji Rao Road, Mysuru', phone: '+91-9789089012', aadhaar: '2345-6789-0123' },
+    43→    { name: 'Prabhakar Joshi', age: 50, address: 'Vidyanagar, Hubballi-580030', phone: '+91-9484090123', aadhaar: '3456-7890-1234' },
+    44→    { name: 'Farooq Ahmed Sheikh', age: 29, address: 'No. 23, Cutchery Road, Mangaluru', phone: '+91-9745001234', aadhaar: '4567-8901-2345' },
+    45→    { name: 'Deepa Rajesh Kumar', age: 33, address: 'Navalur Layout, Shivamogga', phone: '+91-9886012345', aadhaar: '5678-9012-1234' },
+    46→    { name: 'Vikram Singh Rathore', age: 37, address: 'Fort Road, Belagavi-590001', phone: '+91-9664023456', aadhaar: '6789-0123-1234' },
+    47→    { name: 'Nandini Prasad', age: 24, address: 'MG Road, Bengaluru-560001', phone: '+91-9823034567', aadhaar: '7890-1234-1234' },
+    48→    { name: 'Arjun Mahadevappa', age: 40, address: 'Kuvempu Nagar, Shivamogga-577201', phone: '+91-9445045678', aadhaar: '8901-2345-1234' },
+    49→    { name: 'Reshma Begum', age: 27, address: 'Hampankatta, Mangaluru-575001', phone: '+91-9866056789', aadhaar: '9012-3456-1234' },
+    50→    { name: 'Karthik Raman', age: 35, address: 'Jayanagar 4th Block, Bengaluru', phone: '+91-9789067890', aadhaar: '0123-4567-2345' },
+    51→    { name: 'Sunitha Krishnamurthy', age: 48, address: 'Basavanagudi, Bengaluru-560004', phone: '+91-9484078901', aadhaar: '1234-5678-2345' },
+    52→  ];
+    53→
+    54→  const persons: Record<string, string> = {};
+    55→  for (const p of personData) {
+    56→    const created = await db.person.create({ data: p });
+    57→    persons[p.name] = created.id;
+    58→  }
+    59→  console.log(`  Created ${personData.length} persons.`);
+    60→
+    61→  // ─── FIRs ────────────────────────────────────────────────────
+    62→  console.log('📋 Creating FIRs...');
+    63→  const firData = [
+    64→    {
+    65→      firNumber: 'FIR/BLR/KRM/2024/001',
+    66→      date: new Date('2024-01-15'),
+    67→      district: 'Bengaluru Urban', station: 'Koramangala Police Station',
+    68→      crimeType: 'Theft', description: 'Burglary at a residence in Koramangala 5th Block during nighttime. Gold jewelry worth ₹8.5 lakhs and cash ₹45,000 stolen. Entry through rear window. Fingerprints recovered from window sill.',
+    69→      status: 'Open', severity: 'High', latitude: 12.9352, longitude: 77.6245,
+    70→    },
+    71→    {
+    72→      firNumber: 'FIR/BLR/WF/2024/002',
+    73→      date: new Date('2024-01-22'),
+    74→      district: 'Bengaluru Urban', station: 'Whitefield Police Station',
+    75→      crimeType: 'Vehicle Theft', description: 'Honda City sedan (KA-05-MX-1234) stolen from apartment parking in Whitefield between 11 PM and 6 AM. CCTV footage shows two suspects.',
+    76→      status: 'Closed', severity: 'Medium', latitude: 12.9698, longitude: 77.7500,
+    77→    },
+    78→    {
+    79→      firNumber: 'FIR/BLR/HSR/2024/003',
+    80→      date: new Date('2024-02-03'),
+    81→      district: 'Bengaluru Urban', station: 'HSR Layout Police Station',
+    82→      crimeType: 'Cybercrime', description: 'Online UPI fraud victim lost ₹2.3 lakhs through fake lottery scheme. Multiple transactions made over 3 days before victim realized.',
+    83→      status: 'Under Investigation', severity: 'Medium', latitude: 12.9116, longitude: 77.6389,
+    84→    },
+    85→    {
+    86→      firNumber: 'FIR/BLR/JPN/2024/004',
+    87→      date: new Date('2024-02-10'),
+    88→      district: 'Bengaluru Urban', station: 'JP Nagar Police Station',
+    89→      crimeType: 'Chain Snatching', description: 'Gold chain worth ₹1.2 lakhs snatched by bike-borne miscreants near JP Nagar bus stand at 8:30 PM. Victim sustained minor injuries.',
+    90→      status: 'Open', severity: 'Low', latitude: 12.8930, longitude: 77.5850,
+    91→    },
+    92→    {
+    93→      firNumber: 'FIR/BLR/KRM/2024/005',
+    94→      date: new Date('2024-02-18'),
+    95→      district: 'Bengaluru Urban', station: 'Koramangala Police Station',
+    96→      crimeType: 'Assault', description: 'Assault on a software engineer near Forum Mall following a road rage incident. Victim hospitalized with fractures. Two accused arrested.',
+    97→      status: 'Closed', severity: 'High', latitude: 12.9352, longitude: 77.6245,
+    98→    },
+    99→    {
+   100→      firNumber: 'FIR/BLR-RURAL/2024/006',
+   101→      date: new Date('2024-03-01'),
+   102→      district: 'Bengaluru Rural', station: 'Bengaluru Rural SP Office',
+   103→      crimeType: 'Drug Trafficking', description: 'Narcotics seizure of 15 kg ganja and 500 gm MDMA from a farmhouse in Anekal Taluk. Three persons arrested. Vehicle impounded.',
+   104→      status: 'Closed', severity: 'Critical', latitude: 12.9716, longitude: 77.5946,
+   105→    },
+   106→    {
+   107→      firNumber: 'FIR/BLR/WF/2024/007',
+   108→      date: new Date('2024-03-12'),
+   109→      district: 'Bengaluru Urban', station: 'Whitefield Police Station',
+   110→      crimeType: 'Robbery', description: 'Armed robbery at a petrol bunk on Whitefield-Hoskote road. ₹3.2 lakhs in cash looted. Security guard injured. Three armed assailants.',
+   111→      status: 'Open', severity: 'Critical', latitude: 12.9698, longitude: 77.7500,
+   112→    },
+   113→    {
+   114→      firNumber: 'FIR/MYS/2024/008',
+   115→      date: new Date('2024-03-20'),
+   116→      district: 'Mysuru', station: 'Mysuru City Police Station',
+   117→      crimeType: 'Murder', description: 'Murder of a businessman in Gokulam area. Body found with multiple stab wounds. Business rivalry suspected. Forensic evidence collected.',
+   118→      status: 'Under Investigation', severity: 'Critical', latitude: 12.2958, longitude: 76.6394,
+   119→    },
+   120→    {
+   121→      firNumber: 'FIR/BLR/HSR/2024/009',
+   122→      date: new Date('2024-04-05'),
+   123→      district: 'Bengaluru Urban', station: 'HSR Layout Police Station',
+   124→      crimeType: 'Fraud', description: 'Real estate fraud where accused sold same plot to multiple buyers. Total fraud amount estimated at ₹1.5 crores. Seven victims identified.',
+   125→      status: 'Under Investigation', severity: 'High', latitude: 12.9116, longitude: 77.6389,
+   126→    },
+   127→    {
+   128→      firNumber: 'FIR/HBL/2024/010',
+   129→      date: new Date('2024-04-15'),
+   130→      district: 'Hubballi-Dharwad', station: 'Hubballi-Dharwad Police Commissionerate',
+   131→      crimeType: 'Theft', description: 'Theft of copper wiring and electrical equipment from under-construction site in Vidyanagar worth ₹12 lakhs.',
+   132→      status: 'Open', severity: 'Medium', latitude: 15.3647, longitude: 75.1240,
+   133→    },
+   134→    {
+   135→      firNumber: 'FIR/MNG/2024/011',
+   136→      date: new Date('2024-04-22'),
+   137→      district: 'Mangaluru', station: 'Mangaluru City Police Station',
+   138→      crimeType: 'Cybercrime', description: 'Credit card cloning fraud at multiple POS terminals in Mangaluru city. 42 victims identified. Total loss ₹28 lakhs.',
+   139→      status: 'Open', severity: 'High', latitude: 12.9141, longitude: 74.8560,
+   140→    },
+   141→    {
+   142→      firNumber: 'FIR/BLR/KRM/2024/012',
+   143→      date: new Date('2024-05-03'),
+   144→      district: 'Bengaluru Urban', station: 'Koramangala Police Station',
+   145→      crimeType: 'Kidnapping', description: 'Kidnapping of a 7-year-old child from school bus stop in Koramangala. Ransom demand of ₹50 lakhs received. Anti-terrorism squad alerted.',
+   146→      status: 'Under Investigation', severity: 'Critical', latitude: 12.9352, longitude: 77.6245,
+   147→    },
+   148→    {
+   149→      firNumber: 'FIR/BLR/WF/2024/013',
+   150→      date: new Date('2024-05-10'),
+   151→      district: 'Bengaluru Urban', station: 'Whitefield Police Station',
+   152→      crimeType: 'Burglary', description: 'Series of burglaries in ITPL area apartments. 6 apartments targeted in 2 weeks. Total theft ₹18 lakhs including electronics and jewelry.',
+   153→      status: 'Open', severity: 'High', latitude: 12.9698, longitude: 77.7500,
+   154→    },
+   155→    {
+   156→      firNumber: 'FIR/SHM/2024/014',
+   157→      date: new Date('2024-05-18'),
+   158→      district: 'Shivamogga', station: 'Mangaluru City Police Station',
+   159→      crimeType: 'Assault', description: 'Group assault during a temple festival in Shivamogga. Three persons seriously injured. Communal tension reported. Section 144 imposed.',
+   160→      status: 'Closed', severity: 'High', latitude: 13.9299, longitude: 75.5726,
+   161→    },
+   162→    {
+   163→      firNumber: 'FIR/BLR/JPN/2024/015',
+   164→      date: new Date('2024-05-25'),
+   165→      district: 'Bengaluru Urban', station: 'JP Nagar Police Station',
+   166→      crimeType: 'Theft', description: 'Laptop and mobile phones stolen from co-working space in JP Nagar during lunch hours. 4 devices worth ₹2.8 lakhs.',
+   167→      status: 'Closed', severity: 'Low', latitude: 12.8930, longitude: 77.5850,
+   168→    },
+   169→    {
+   170→      firNumber: 'FIR/BLG/2024/016',
+   171→      date: new Date('2024-06-02'),
+   172→      district: 'Belagavi', station: 'Hubballi-Dharwad Police Commissionerate',
+   173→      crimeType: 'Robbery', description: 'Dacoity at a jewelry shop in Belagavi Fort area. Loot worth ₹45 lakhs. 5 armed robbers. One robber injured in exchange of fire.',
+   174→      status: 'Under Investigation', severity: 'Critical', latitude: 15.8522, longitude: 74.4985,
+   175→    },
+   176→    {
+   177→      firNumber: 'FIR/MYS/2024/017',
+   178→      date: new Date('2024-06-10'),
+   179→      district: 'Mysuru', station: 'Mysuru City Police Station',
+   180→      crimeType: 'Vehicle Theft', description: 'Royal Enfield Bullet (KA-09-MM-5678) and TVS Apache (KA-19-NR-9012) stolen from Mysore palace parking during Dasara event.',
+   181→      status: 'Open', severity: 'Low', latitude: 12.2958, longitude: 76.6394,
+   182→    },
+   183→    {
+   184→      firNumber: 'FIR/BLR/HSR/2024/018',
+   185→      date: new Date('2024-06-15'),
+   186→      district: 'Bengaluru Urban', station: 'HSR Layout Police Station',
+   187→      crimeType: 'Cybercrime', description: 'Phishing attack targeting senior citizens in HSR Layout. 12 victims collectively lost ₹45 lakhs through fake banking URLs.',
+   188→      status: 'Open', severity: 'High', latitude: 12.9116, longitude: 77.6389,
+   189→    },
+   190→    {
+   191→      firNumber: 'FIR/BLR-RURAL/2024/019',
+   192→      date: new Date('2024-06-22'),
+   193→      district: 'Bengaluru Rural', station: 'Bengaluru Rural SP Office',
+   194→      crimeType: 'Fraud', description: 'Agricultural loan fraud involving fake land documents. Syndicate operated from Bengaluru Rural district. 23 farmers affected, ₹3.2 crores.',
+   195→      status: 'Under Investigation', severity: 'Critical', latitude: 12.9716, longitude: 77.5946,
+   196→    },
+   197→    {
+   198→      firNumber: 'FIR/HBL/2024/020',
+   199→      date: new Date('2024-07-01'),
+   200→      district: 'Hubballi-Dharwad', station: 'Hubballi-Dharwad Police Commissionerate',
+   201→      crimeType: 'Assault', description: 'Assault on a journalist covering local corruption story. Victim admitted to KIMS hospital. Press association protests.',
+   202→      status: 'Open', severity: 'High', latitude: 15.3647, longitude: 75.1240,
+   203→    },
+   204→    {
+   205→      firNumber: 'FIR/MNG/2024/021',
+   206→      date: new Date('2024-07-10'),
+   207→      district: 'Mangaluru', station: 'Mangaluru City Police Station',
+   208→      crimeType: 'Murder', description: 'Honor killing in Mangaluru. Inter-caste couple attacked. Husband killed, wife critically injured. Three family members arrested.',
+   209→      status: 'Closed', severity: 'Critical', latitude: 12.9141, longitude: 74.8560,
+   210→    },
+   211→    {
+   212→      firNumber: 'FIR/BLR/KRM/2024/022',
+   213→      date: new Date('2024-07-18'),
+   214→      district: 'Bengaluru Urban', station: 'Koramangala Police Station',
+   215→      crimeType: 'Fraud', description: 'Cryptocurrency investment scam through Telegram group. 85 investors from Bengaluru defrauded of ₹12 crores. Foreign links suspected.',
+   216→      status: 'Under Investigation', severity: 'Critical', latitude: 12.9352, longitude: 77.6245,
+   217→    },
+   218→    {
+   219→      firNumber: 'FIR/BLR/WF/2024/023',
+   220→      date: new Date('2024-07-25'),
+   221→      district: 'Bengaluru Urban', station: 'Whitefield Police Station',
+   222→      crimeType: 'Chain Snatching', description: 'Two chain snatching incidents in ITPL vicinity within 24 hours. Same modus operandi - bike-borne, helmet-clad suspects.',
+   223→      status: 'Open', severity: 'Medium', latitude: 12.9698, longitude: 77.7500,
+   224→    },
+   225→    {
+   226→      firNumber: 'FIR/SHM/2024/024',
+   227→      date: new Date('2024-08-02'),
+   228→      district: 'Shivamogga', station: 'Mangaluru City Police Station',
+   229→      crimeType: 'Theft', description: 'Temple idol theft from ancient Venkataramana temple in Shivamogga. 12th-century bronze idol worth ₹5 crores. Heritage crime squad involved.',
+   230→      status: 'Open', severity: 'High', latitude: 13.9299, longitude: 75.5726,
+   231→    },
+   232→    {
+   233→      firNumber: 'FIR/BLR/JPN/2024/025',
+   234→      date: new Date('2024-08-10'),
+   235→      district: 'Bengaluru Urban', station: 'JP Nagar Police Station',
+   236→      crimeType: 'Drug Trafficking', description: 'Inter-state drug trafficking network busted. 2 kg heroin seized from a flat in JP Nagar. Three arrested with Nigerian national.',
+   237→      status: 'Closed', severity: 'Critical', latitude: 12.8930, longitude: 77.5850,
+   238→    },
+   239→    {
+   240→      firNumber: 'FIR/BLR/KRM/2024/026',
+   241→      date: new Date('2024-08-15'),
+   242→      district: 'Bengaluru Urban', station: 'Koramangala Police Station',
+   243→      crimeType: 'Burglary', description: 'Office break-in at a tech startup in Koramangala. Servers and laptops worth ₹25 lakhs stolen. Data breach suspected.',
+   244→      status: 'Under Investigation', severity: 'High', latitude: 12.9352, longitude: 77.6245,
+   245→    },
+   246→    {
+   247→      firNumber: 'FIR/MYS/2024/027',
+   248→      date: new Date('2024-08-22'),
+   249→      district: 'Mysuru', station: 'Mysuru City Police Station',
+   250→      crimeType: 'Cybercrime', description: 'Social media blackmail ring targeting college students in Mysuru. 15 victims. ₹8 lakhs extorted through morphed photographs.',
+   251→      status: 'Open', severity: 'High', latitude: 12.2958, longitude: 76.6394,
+   252→    },
+   253→    {
+   254→      firNumber: 'FIR/BLR/HSR/2024/028',
+   255→      date: new Date('2024-09-01'),
+   256→      district: 'Bengaluru Urban', station: 'HSR Layout Police Station',
+   257→      crimeType: 'Robbery', description: 'ATM robbery at HSR Layout BDA complex. CCTV tampered. Cash cassette stolen. Estimated loss ₹12 lakhs.',
+   258→      status: 'Open', severity: 'High', latitude: 12.9116, longitude: 77.6389,
+   259→    },
+   260→    {
+   261→      firNumber: 'FIR/HBL/2024/029',
+   262→      date: new Date('2024-09-10'),
+   263→      district: 'Hubballi-Dharwad', station: 'Hubballi-Dharwad Police Commissionerate',
+   264→      crimeType: 'Vehicle Theft', description: 'Luxury car theft ring busted. 4 stolen cars recovered from Dharwad industrial area. Interstate gang of 5 members arrested.',
+   265→      status: 'Closed', severity: 'High', latitude: 15.3647, longitude: 75.1240,
+   266→    },
+   267→    {
+   268→      firNumber: 'FIR/BLR-RURAL/2024/030',
+   269→      date: new Date('2024-09-18'),
+   270→      district: 'Bengaluru Rural', station: 'Bengaluru Rural SP Office',
+   271→      crimeType: 'Kidnapping', description: 'Kidnapping of a minor girl from Anekal village. Child recovered within 48 hours from neighboring district. Accused known to family.',
+   272→      status: 'Closed', severity: 'Critical', latitude: 12.9716, longitude: 77.5946,
+   273→    },
+   274→    {
+   275→      firNumber: 'FIR/MNG/2024/031',
+   276→      date: new Date('2024-09-25'),
+   277→      district: 'Mangaluru', station: 'Mangaluru City Police Station',
+   278→      crimeType: 'Theft', description: 'Shoplifting ring at City Centre Mall, Mangaluru. Luxury goods worth ₹15 lakhs stolen over 2 months using diversion tactics.',
+   279→      status: 'Under Investigation', severity: 'Medium', latitude: 12.9141, longitude: 74.8560,
+   280→    },
+   281→    {
+   282→      firNumber: 'FIR/BLR/KRM/2024/032',
+   283→      date: new Date('2024-10-02'),
+   284→      district: 'Bengaluru Urban', station: 'Koramangala Police Station',
+   285→      crimeType: 'Assault', description: 'Drunken brawl at a pub in Koramangala escalated into stabbing. One person critically injured, two arrested on the spot.',
+   286→      status: 'Closed', severity: 'Medium', latitude: 12.9352, longitude: 77.6245,
+   287→    },
+   288→    {
+   289→      firNumber: 'FIR/BLG/2024/033',
+   290→      date: new Date('2024-10-10'),
+   291→      district: 'Belagavi', station: 'Hubballi-Dharwad Police Commissionerate',
+   292→      crimeType: 'Fraud', description: 'Government job recruitment scam in Belagavi. Fake RTO officer collected ₹50,000 each from 200 candidates. Total ₹1 crore.',
+   293→      status: 'Under Investigation', severity: 'High', latitude: 15.8522, longitude: 74.4985,
+   294→    },
+   295→    {
+   296→      firNumber: 'FIR/BLR/WF/2024/034',
+   297→      date: new Date('2024-10-15'),
+   298→      district: 'Bengaluru Urban', station: 'Whitefield Police Station',
+   299→      crimeType: 'Cybercrime', description: 'Ransomware attack on a healthcare startup in Whitefield. Patient data encrypted. Bitcoin ransom of 5 BTC demanded.',
+   300→      status: 'Open', severity: 'Critical', latitude: 12.9698, longitude: 77.7500,
+   301→    },
+   302→    {
+   303→      firNumber: 'FIR/SHM/2024/035',
+   304→      date: new Date('2024-10-22'),
+   305→      district: 'Shivamogga', station: 'Mangaluru City Police Station',
+   306→      crimeType: 'Drug Trafficking', description: 'MDMA lab raided in Shivamogga rural area. Equipment and chemicals seized. 2 kg synthetic drugs recovered. Two arrested.',
+   307→      status: 'Closed', severity: 'Critical', latitude: 13.9299, longitude: 75.5726,
+   308→    },
+   309→    {
+   310→      firNumber: 'FIR/BLR/JPN/2024/036',
+   311→      date: new Date('2024-10-28'),
+   312→      district: 'Bengaluru Urban', station: 'JP Nagar Police Station',
+   313→      crimeType: 'Burglary', description: 'Daytime burglary at a house in JP Nagar 6th Phase while occupants were at work. Jewelry and cash worth ₹4 lakhs.',
+   314→      status: 'Open', severity: 'Medium', latitude: 12.8930, longitude: 77.5850,
+   315→    },
+   316→    {
+   317→      firNumber: 'FIR/MYS/2024/037',
+   318→      date: new Date('2024-11-05'),
+   319→      district: 'Mysuru', station: 'Mysuru City Police Station',
+   320→      crimeType: 'Robbery', description: 'Highway robbery on Mysuru-Nanjangud road. Truck loaded with electronics looted. Driver tied up. Loss estimated at ₹35 lakhs.',
+   321→      status: 'Open', severity: 'High', latitude: 12.2958, longitude: 76.6394,
+   322→    },
+   323→    {
+   324→      firNumber: 'FIR/BLR/HSR/2024/038',
+   325→      date: new Date('2024-11-12'),
+   326→      district: 'Bengaluru Urban', station: 'HSR Layout Police Station',
+   327→      crimeType: 'Theft', description: 'Auto-rickshaw driver robbed by passengers posing as IT workers near HSR BDA complex. ₹5,000 cash and phone stolen.',
+   328→      status: 'Closed', severity: 'Low', latitude: 12.9116, longitude: 77.6389,
+   329→    },
+   330→    {
+   331→      firNumber: 'FIR/BLR-RURAL/2024/039',
+   332→      date: new Date('2024-11-20'),
+   333→      district: 'Bengaluru Rural', station: 'Bengaluru Rural SP Office',
+   334→      crimeType: 'Assault', description: 'Land dispute led to violent clash between two families in Bengaluru Rural. 8 persons injured. 4 arrested. Situation tense.',
+   335→      status: 'Closed', severity: 'Medium', latitude: 12.9716, longitude: 77.5946,
+   336→    },
+   337→    {
+   338→      firNumber: 'FIR/HBL/2024/040',
+   339→      date: new Date('2024-11-28'),
+   340→      district: 'Hubballi-Dharwad', station: 'Hubballi-Dharwad Police Commissionerate',
+   341→      crimeType: 'Cybercrime', description: 'Online job fraud targeting unemployed youth in Hubballi. 50 victims paid ₹2,000 each for fake work-from-home jobs.',
+   342→      status: 'Open', severity: 'Medium', latitude: 15.3647, longitude: 75.1240,
+   343→    },
+   344→    {
+   345→      firNumber: 'FIR/MNG/2024/041',
+   346→      date: new Date('2024-12-02'),
+   347→      district: 'Mangaluru', station: 'Mangaluru City Police Station',
+   348→      crimeType: 'Kidnapping', description: 'Attempted kidnapping of a school child near Hampankatta. Child escaped. Sketch of suspect released. Public alerted.',
+   349→      status: 'Open', severity: 'High', latitude: 12.9141, longitude: 74.8560,
+   350→    },
+   351→    {
+   352→      firNumber: 'FIR/BLR/KRM/2024/042',
+   353→      date: new Date('2024-12-08'),
+   354→      district: 'Bengaluru Urban', station: 'Koramangala Police Station',
+   355→      crimeType: 'Murder', description: 'Murder of a senior citizen in Koramangala. Body found in apartment. Robbery as motive. Domestic help interrogated.',
+   356→      status: 'Under Investigation', severity: 'Critical', latitude: 12.9352, longitude: 77.6245,
+   357→    },
+   358→    {
+   359→      firNumber: 'FIR/BLR/WF/2024/043',
+   360→      date: new Date('2024-12-12'),
+   361→      district: 'Bengaluru Urban', station: 'Whitefield Police Station',
+   362→      crimeType: 'Fraud', description: 'Insurance fraud involving staged accidents. Three persons staged 7 accidents across Bengaluru. Claims worth ₹22 lakhs filed.',
+   363→      status: 'Under Investigation', severity: 'Medium', latitude: 12.9698, longitude: 77.7500,
+   364→    },
+   365→  ];
+   366→
+   367→  const firs: Record<string, string> = {};
+   368→  for (const f of firData) {
+   369→    const created = await db.fir.create({ data: f });
+   370→    firs[f.firNumber] = created.id;
+   371→  }
+   372→  console.log(`  Created ${firData.length} FIRs.`);
+   373→
+   374→  // ─── Suspects & Victims ─────────────────────────────────────
+   375→  console.log('🔗 Creating suspect/victim relations...');
+   376→
+   377→  // suspects: person -> fir
+   378→  const suspectLinks = [
+   379→    ['Mohammed Irfan Ali', 'FIR/BLR/KRM/2024/001'],
+   380→    ['Kiran Naidu', 'FIR/BLR/KRM/2024/001'],
+   381→    ['Kiran Naidu', 'FIR/BLR/WF/2024/002'],
+   382→    ['Mohammed Irfan Ali', 'FIR/BLR/WF/2024/002'],
+   383→    ['Ravi Shankar Gupta', 'FIR/BLR/HSR/2024/003'],
+   384→    ['Kiran Naidu', 'FIR/BLR/JPN/2024/004'],
+   385→    ['Mohammed Irfan Ali', 'FIR/BLR/JPN/2024/004'],
+   386→    ['Vikram Singh Rathore', 'FIR/BLR/KRM/2024/005'],
+   387→    ['Prabhakar Joshi', 'FIR/BLR-RURAL/2024/006'],
+   388→    ['Anand Kumar Mehta', 'FIR/BLR-RURAL/2024/006'],
+   389→    ['Farooq Ahmed Sheikh', 'FIR/BLR-RURAL/2024/006'],
+   390→    ['Prabhakar Joshi', 'FIR/BLR/WF/2024/007'],
+   391→    ['Vikram Singh Rathore', 'FIR/BLR/WF/2024/007'],
+   392→    ['Anand Kumar Mehta', 'FIR/MYS/2024/008'],
+   393→    ['Ravi Shankar Gupta', 'FIR/BLR/HSR/2024/009'],
+   394→    ['Prabhakar Joshi', 'FIR/HBL/2024/010'],
+   395→    ['Farooq Ahmed Sheikh', 'FIR/MNG/2024/011'],
+   396→    ['Arjun Mahadevappa', 'FIR/BLR/KRM/2024/012'],
+   397→    ['Kiran Naidu', 'FIR/BLR/WF/2024/013'],
+   398→    ['Arjun Mahadevappa', 'FIR/SHM/2024/014'],
+   399→    ['Mohammed Irfan Ali', 'FIR/BLR/JPN/2024/015'],
+   400→    ['Vikram Singh Rathore', 'FIR/BLG/2024/016'],
+   401→    ['Anand Kumar Mehta', 'FIR/BLG/2024/016'],
+   402→    ['Farooq Ahmed Sheikh', 'FIR/MYS/2024/017'],
+   403→    ['Ravi Shankar Gupta', 'FIR/BLR/HSR/2024/018'],
+   404→    ['Prabhakar Joshi', 'FIR/BLR-RURAL/2024/019'],
+   405→    ['Arjun Mahadevappa', 'FIR/HBL/2024/020'],
+   406→    ['Reshma Begum', 'FIR/MNG/2024/021'],
+   407→    ['Ravi Shankar Gupta', 'FIR/BLR/KRM/2024/022'],
+   408→    ['Mohammed Irfan Ali', 'FIR/BLR/WF/2024/023'],
+   409→    ['Kiran Naidu', 'FIR/BLR/WF/2024/023'],
+   410→    ['Arjun Mahadevappa', 'FIR/SHM/2024/024'],
+   411→    ['Farooq Ahmed Sheikh', 'FIR/BLR/JPN/2024/025'],
+   412→    ['Kiran Naidu', 'FIR/BLR/KRM/2024/026'],
+   413→    ['Ravi Shankar Gupta', 'FIR/MYS/2024/027'],
+   414→    ['Vikram Singh Rathore', 'FIR/BLR/HSR/2024/028'],
+   415→    ['Prabhakar Joshi', 'FIR/HBL/2024/029'],
+   416→    ['Anand Kumar Mehta', 'FIR/HBL/2024/029'],
+   417→    ['Reshma Begum', 'FIR/BLR-RURAL/2024/030'],
+   418→    ['Reshma Begum', 'FIR/MNG/2024/031'],
+   419→    ['Mohammed Irfan Ali', 'FIR/BLR/KRM/2024/032'],
+   420→    ['Vikram Singh Rathore', 'FIR/BLG/2024/033'],
+   421→    ['Ravi Shankar Gupta', 'FIR/BLR/WF/2024/034'],
+   422→    ['Anand Kumar Mehta', 'FIR/SHM/2024/035'],
+   423→    ['Farooq Ahmed Sheikh', 'FIR/SHM/2024/035'],
+   424→    ['Kiran Naidu', 'FIR/BLR/JPN/2024/036'],
+   425→    ['Prabhakar Joshi', 'FIR/MYS/2024/037'],
+   426→    ['Arjun Mahadevappa', 'FIR/BLR/HSR/2024/038'],
+   427→    ['Vikram Singh Rathore', 'FIR/BLR-RURAL/2024/039'],
+   428→    ['Reshma Begum', 'FIR/HBL/2024/040'],
+   429→    ['Farooq Ahmed Sheikh', 'FIR/MNG/2024/041'],
+   430→    ['Ravi Shankar Gupta', 'FIR/BLR/KRM/2024/042'],
+   431→    ['Mohammed Irfan Ali', 'FIR/BLR/WF/2024/043'],
+   432→  ];
+   433→
+   434→  for (const [personName, firNumber] of suspectLinks) {
+   435→    await db.suspect.create({
+   436→      data: { firId: firs[firNumber], personId: persons[personName] },
+   437→    });
+   438→  }
+   439→
+   440→  // victims: person -> fir
+   441→  const victimLinks = [
+   442→    ['Lakshmi Devi Sharma', 'FIR/BLR/KRM/2024/001'],
+   443→    ['Priya Venkatesh', 'FIR/BLR/WF/2024/002'],
+   444→    ['Sunitha Krishnamurthy', 'FIR/BLR/HSR/2024/003'],
+   445→    ['Nandini Prasad', 'FIR/BLR/JPN/2024/004'],
+   446→    ['Karthik Raman', 'FIR/BLR/KRM/2024/005'],
+   447→    ['Suresh Babu Reddy', 'FIR/BLR-RURAL/2024/006'],
+   448→    ['Geetha Narasimha', 'FIR/BLR/WF/2024/007'],
+   449→    ['Suresh Babu Reddy', 'FIR/MYS/2024/008'],
+   450→    ['Deepa Rajesh Kumar', 'FIR/BLR/HSR/2024/009'],
+   451→    ['Lakshmi Devi Sharma', 'FIR/HBL/2024/010'],
+   452→    ['Sunitha Krishnamurthy', 'FIR/MNG/2024/011'],
+   453→    ['Nandini Prasad', 'FIR/BLR/KRM/2024/012'],
+   454→    ['Priya Venkatesh', 'FIR/BLR/WF/2024/013'],
+   455→    ['Deepa Rajesh Kumar', 'FIR/SHM/2024/014'],
+   456→    ['Karthik Raman', 'FIR/BLR/JPN/2024/015'],
+   457→    ['Lakshmi Devi Sharma', 'FIR/BLG/2024/016'],
+   458→    ['Geetha Narasimha', 'FIR/MYS/2024/017'],
+   459→    ['Sunitha Krishnamurthy', 'FIR/BLR/HSR/2024/018'],
+   460→    ['Suresh Babu Reddy', 'FIR/BLR-RURAL/2024/019'],
+   461→    ['Prabhakar Joshi', 'FIR/HBL/2024/020'],
+   462→    ['Reshma Begum', 'FIR/MNG/2024/021'],
+   463→    ['Deepa Rajesh Kumar', 'FIR/BLR/KRM/2024/022'],
+   464→    ['Nandini Prasad', 'FIR/BLR/WF/2024/023'],
+   465→    ['Karthik Raman', 'FIR/SHM/2024/024'],
+   466→    ['Lakshmi Devi Sharma', 'FIR/BLR/JPN/2024/025'],
+   467→    ['Priya Venkatesh', 'FIR/BLR/KRM/2024/026'],
+   468→    ['Geetha Narasimha', 'FIR/MYS/2024/027'],
+   469→    ['Sunitha Krishnamurthy', 'FIR/BLR/HSR/2024/028'],
+   470→    ['Suresh Babu Reddy', 'FIR/HBL/2024/029'],
+   471→    ['Deepa Rajesh Kumar', 'FIR/BLR-RURAL/2024/030'],
+   472→    ['Karthik Raman', 'FIR/MNG/2024/031'],
+   473→    ['Nandini Prasad', 'FIR/BLR/KRM/2024/032'],
+   474→    ['Geetha Narasimha', 'FIR/BLG/2024/033'],
+   475→    ['Lakshmi Devi Sharma', 'FIR/BLR/WF/2024/034'],
+   476→    ['Priya Venkatesh', 'FIR/SHM/2024/035'],
+   477→    ['Suresh Babu Reddy', 'FIR/BLR/JPN/2024/036'],
+   478→    ['Deepa Rajesh Kumar', 'FIR/MYS/2024/037'],
+   479→    ['Karthik Raman', 'FIR/BLR/HSR/2024/038'],
+   480→    ['Sunitha Krishnamurthy', 'FIR/BLR-RURAL/2024/039'],
+   481→    ['Reshma Begum', 'FIR/HBL/2024/040'],
+   482→    ['Nandini Prasad', 'FIR/MNG/2024/041'],
+   483→    ['Geetha Narasimha', 'FIR/BLR/KRM/2024/042'],
+   484→    ['Lakshmi Devi Sharma', 'FIR/BLR/WF/2024/043'],
+   485→  ];
+   486→
+   487→  for (const [personName, firNumber] of victimLinks) {
+   488→    await db.victim.create({
+   489→      data: { firId: firs[firNumber], personId: persons[personName] },
+   490→    });
+   491→  }
+   492→
+   493→  console.log(`  Created ${suspectLinks.length} suspect links and ${victimLinks.length} victim links.`);
+   494→
+   495→  // ─── Links (person-to-person relations) ──────────────────────
+   496→  console.log('🔗 Creating person-to-person links...');
+   497→  const linkData = [
+   498→    { source: 'Mohammed Irfan Ali', target: 'Kiran Naidu', relation: 'associate_of', strength: 0.9 },
+   499→    { source: 'Kiran Naidu', target: 'Mohammed Irfan Ali', relation: 'associate_of', strength: 0.9 },
+   500→    { source: 'Ravi Shankar Gupta', target: 'Kiran Naidu', relation: 'called', strength: 0.7 },
+   501→    { source: 'Kiran Naidu', target: 'Ravi Shankar Gupta', relation: 'called', strength: 0.7 },
+   502→    { source: 'Anand Kumar Mehta', target: 'Prabhakar Joshi', relation: 'family_of', strength: 1.0 },
+   503→    { source: 'Prabhakar Joshi', target: 'Anand Kumar Mehta', relation: 'family_of', strength: 1.0 },
+   504→    { source: 'Farooq Ahmed Sheikh', target: 'Anand Kumar Mehta', relation: 'associate_of', strength: 0.6 },
+   505→    { source: 'Anand Kumar Mehta', target: 'Farooq Ahmed Sheikh', relation: 'associate_of', strength: 0.6 },
+   506→    { source: 'Vikram Singh Rathore', target: 'Arjun Mahadevappa', relation: 'linked_to_same_fir', strength: 0.5 },
+   507→    { source: 'Arjun Mahadevappa', target: 'Vikram Singh Rathore', relation: 'linked_to_same_fir', strength: 0.5 },
+   508→    { source: 'Reshma Begum', target: 'Farooq Ahmed Sheikh', relation: 'family_of', strength: 0.8 },
+   509→    { source: 'Farooq Ahmed Sheikh', target: 'Reshma Begum', relation: 'family_of', strength: 0.8 },
+   510→    { source: 'Ravi Shankar Gupta', target: 'Farooq Ahmed Sheikh', relation: 'linked_to_same_fir', strength: 0.4 },
+   511→    { source: 'Farooq Ahmed Sheikh', target: 'Ravi Shankar Gupta', relation: 'linked_to_same_fir', strength: 0.4 },
+   512→    { source: 'Prabhakar Joshi', target: 'Vikram Singh Rathore', relation: 'linked_to_same_fir', strength: 0.6 },
+   513→    { source: 'Vikram Singh Rathore', target: 'Prabhakar Joshi', relation: 'linked_to_same_fir', strength: 0.6 },
+   514→    { source: 'Mohammed Irfan Ali', target: 'Ravi Shankar Gupta', relation: 'owns_vehicle', strength: 0.5 },
+   515→    { source: 'Anand Kumar Mehta', target: 'Kiran Naidu', relation: 'linked_to_same_fir', strength: 0.3 },
+   516→    { source: 'Kiran Naidu', target: 'Anand Kumar Mehta', relation: 'linked_to_same_fir', strength: 0.3 },
+   517→    { source: 'Reshma Begum', target: 'Arjun Mahadevappa', relation: 'associate_of', strength: 0.45 },
+   518→    { source: 'Arjun Mahadevappa', target: 'Reshma Begum', relation: 'associate_of', strength: 0.45 },
+   519→    { source: 'Ravi Shankar Gupta', target: 'Vikram Singh Rathore', relation: 'called', strength: 0.55 },
+   520→    { source: 'Vikram Singh Rathore', target: 'Ravi Shankar Gupta', relation: 'called', strength: 0.55 },
+   521→  ];
+   522→
+   523→  for (const l of linkData) {
+   524→    await db.link.create({
+   525→      data: {
+   526→        sourceId: persons[l.source],
+   527→        targetId: persons[l.target],
+   528→        relation: l.relation,
+   529→        strength: l.strength,
+   530→      },
+   531→    });
+   532→  }
+   533→  console.log(`  Created ${linkData.length} links.`);
+   534→
+   535→  // ─── Predictions ─────────────────────────────────────────────
+   536→  console.log('🔮 Creating predictions...');
+   537→  const predictionData = [
+   538→    { district: 'Bengaluru Urban', crimeType: 'Cybercrime', riskScore: 87, factors: JSON.stringify(["6-month trend: +32%", "High complaint volume", "Pattern match with previous spike"]) , month: '2024-12' },
+   539→    { district: 'Bengaluru Urban', crimeType: 'Theft', riskScore: 74, factors: JSON.stringify(["Seasonal increase in Nov-Dec", "Multiple burglary series active", "Staff shortage at patrol units"]) , month: '2024-12' },
+   540→    { district: 'Bengaluru Urban', crimeType: 'Vehicle Theft', riskScore: 65, factors: JSON.stringify(["Festival season vehicle movement", "Parking lot vulnerability", "Recovery rate declining"]) , month: '2024-12' },
+   541→    { district: 'Mysuru', crimeType: 'Robbery', riskScore: 72, factors: JSON.stringify(["Highway robbery pattern detected", "Dasara aftermath effect", "Limited highway patrol"]) , month: '2024-12' },
+   542→    { district: 'Mysuru', crimeType: 'Cybercrime', riskScore: 68, factors: JSON.stringify(["Student population target", "Social media blackmail trend", "Previous month spike"]) , month: '2024-12' },
+   543→    { district: 'Hubballi-Dharwad', crimeType: 'Assault', riskScore: 61, factors: JSON.stringify(["Political tensions rising", "Election-related incidents", "Repeat offender activity"]) , month: '2024-12' },
+   544→    { district: 'Hubballi-Dharwad', crimeType: 'Theft', riskScore: 58, factors: JSON.stringify(["Construction site thefts", "Metal scrappers network active", "Night patrol gaps"]) , month: '2024-12' },
+   545→    { district: 'Mangaluru', crimeType: 'Kidnapping', riskScore: 79, factors: JSON.stringify(["School zone vulnerability", "Recent attempt pattern", "CCTV coverage gaps"]) , month: '2024-12' },
+   546→    { district: 'Mangaluru', crimeType: 'Cybercrime', riskScore: 71, factors: JSON.stringify(["Financial fraud hub", "Coastal trading vulnerability", "Cross-state networks"]) , month: '2024-12' },
+   547→    { district: 'Shivamogga', crimeType: 'Drug Trafficking', riskScore: 83, factors: JSON.stringify(["Forest route utilization", "Goa-Mangalore corridor", "Recent lab bust indicates network"]) , month: '2024-12' },
+   548→    { district: 'Shivamogga', crimeType: 'Theft', riskScore: 55, factors: JSON.stringify(["Temple theft pattern", "Heritage crime target", "Seasonal tourist traffic"]) , month: '2024-12' },
+   549→    { district: 'Belagavi', crimeType: 'Fraud', riskScore: 77, factors: JSON.stringify(["Job scam network expanding", "Border district vulnerability", "Multiple complaints cluster"]) , month: '2024-12' },
+   550→    { district: 'Belagavi', crimeType: 'Robbery', riskScore: 70, factors: JSON.stringify(["Interstate highway corridor", "Dacoity history in region", "Firearms recovery uptick"]) , month: '2024-12' },
+   551→    { district: 'Bengaluru Rural', crimeType: 'Fraud', riskScore: 69, factors: JSON.stringify(["Land document fraud pattern", "Rural banking vulnerability", "Agricultural loan scams"]) , month: '2024-12' },
+   552→    { district: 'Bengaluru Rural', crimeType: 'Kidnapping', riskScore: 52, factors: JSON.stringify(["Child safety incidents", "Farm labor trafficking", "Inter-district movement"]) , month: '2024-12' },
+   553→    { district: 'Bengaluru Urban', crimeType: 'Murder', riskScore: 45, factors: JSON.stringify(["Declining trend from Q2", "Domestic violence related", "Gang rivalry reduced"]) , month: '2024-12' },
+   554→    { district: 'Mangaluru', crimeType: 'Murder', riskScore: 63, factors: JSON.stringify(["Honor killing pattern", "Inter-caste tensions", "Organized crime links"]) , month: '2024-12' },
+   555→  ];
+   556→
+   557→  await db.prediction.createMany({ data: predictionData });
+   558→  console.log(`  Created ${predictionData.length} predictions.`);
+   559→
+   560→  console.log('\n✨ Seed completed successfully!');
+   561→  console.log(`  Stations: 8`);
+   562→  console.log(`  Persons: ${personData.length}`);
+   563→  console.log(`  FIRs: ${firData.length}`);
+   564→  console.log(`  Suspect links: ${suspectLinks.length}`);
+   565→  console.log(`  Victim links: ${victimLinks.length}`);
+   566→  console.log(`  Person links: ${linkData.length}`);
+   567→  console.log(`  Predictions: ${predictionData.length}`);
+   568→}
+   569→
+   570→main()
+   571→  .catch((e) => {
+   572→    console.error('❌ Seed failed:', e);
+   573→    process.exit(1);
+   574→  })
+   575→  .finally(async () => {
+   576→    await db.$disconnect();
+   577→  });
+   578→

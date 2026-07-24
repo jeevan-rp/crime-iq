@@ -96,9 +96,11 @@ export function ChatView() {
                 }`}
               >
                 {msg.role === 'assistant' ? (
-                  <ReactMarkdown className="prose prose-sm max-w-none dark:prose-invert [&_p]:mb-2 [&_ul]:mb-2 [&_ol]:mb-2 [&_li]:mb-0.5 [&_strong]:text-orange-600">
-                    {msg.content}
-                  </ReactMarkdown>
+                  <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:mb-2 [&_ul]:mb-2 [&_ol]:mb-2 [&_li]:mb-0.5 [&_strong]:text-orange-600">
+                    <ReactMarkdown>
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
                 ) : (
                   <p>{msg.content}</p>
                 )}
