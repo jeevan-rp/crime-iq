@@ -1,9 +1,20 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { Prisma } from '@prisma/client';
+import { cachedFetch } from '@/lib/catalyst/cache';
+
+const CACHE_KEY = 'dashboard_stats';
+const CACHE_TTL = 120; // 2 minutes
 
 export async function GET() {
-  try {
+  return cachedFetch(CACHE_KEY, fetchDashboardData, CACHE_TTL)
+    .then(data => NextResponse.json(data))
+    .catch(error => {
+      console.error('Dashboard API error:', error);
+      return NextResponse.json({ error: 'Failed to fetch dashboard data' }, { status: 500 });
+    });
+}
+
+async function fetchDashboardData() {
     // Total FIRs count
     const totalFirs = await db.fir.count();
 
@@ -71,7 +82,7 @@ export async function GET() {
       _count: { severity: true },
     });
 
-    return NextResponse.json({
+    return {
       totalFirs,
       openFirs,
       closedFirs,
@@ -90,12 +101,5 @@ export async function GET() {
         severity: s.severity,
         count: s._count.severity,
       })),
-    });
-  } catch (error) {
-    console.error('Dashboard API error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch dashboard data' },
-      { status: 500 }
-    );
-  }
+    };
 }

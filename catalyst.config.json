@@ -1,0 +1,50 @@
+{
+  "project": {
+    "name": "CRIME-IQ",
+    "display_name": "CRIME IQ - AI Crime Intelligence Platform",
+    "description": "AI-powered crime intelligence platform for Karnataka Police Intelligence Bureau with RAG, predictive analytics, and network analysis"
+  },
+  "environment": {
+    "type": "development",
+    "variables": [
+      { "name": "DATABASE_URL", "value": "file:./db/custom.db", "description": "SQLite DB path (local)" },
+      { "name": "JWT_SECRET", "value": "", "description": "JWT signing secret (generate a random string for production)", "required": true },
+      { "name": "CATALYST_PROJECT_ID", "value": "", "description": "Zoho Catalyst Project ID (auto-set on Catalyst)", "system": true },
+      { "name": "CATALYST_API_KEY", "value": "", "description": "Zoho Catalyst API Key (auto-set on Catalyst)", "system": true },
+      { "name": "CATALYST_ACCESS_TOKEN", "value": "", "description": "Zoho Catalyst Access Token (auto-set on Catalyst)", "system": true }
+    ]
+  },
+  "catalyst_services": {
+    "app_sail": {
+      "runtime": "node22",
+      "build_command": "npm install && npm run build",
+      "start_command": "npm start",
+      "memory": 512,
+      "cpu": 0.5
+    },
+    "data_store": {
+      "tables": ["FIRs", "Persons", "Suspects", "Victims", "Links", "Stations", "Predictions"],
+      "full_text_search": true
+    },
+    "cache": {
+      "default_ttl": 300,
+      "max_memory_mb": 256
+    },
+    "stratus": {
+      "folders": ["evidence", "reports", "exports", "avatars"]
+    },
+    "authentication": {
+      "provider": "zoho_accounts",
+      "roles": ["Admin", "Officer", "Investigator", "Analyst"]
+    },
+    "push_notifications": {
+      "topics": ["critical-alerts", "all-crime", "district-\u002a"]
+    },
+    "api_gateway": {
+      "rate_limit": {
+        "requests_per_minute": 120,
+        "burst": 20
+      }
+    }
+  }
+}
