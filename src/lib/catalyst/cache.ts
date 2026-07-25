@@ -41,10 +41,11 @@ export async function cacheGet<T = unknown>(key: string): Promise<T | null> {
   try {
     if (catalystConfig.isCatalyst) {
       const app = await getCatalystApp()
-      if (!app) throw new Error('Catalyst SDK not initialized')
-      const segment = app.cache().segment()
-      const value = await segment.getValue(key)
-      return (value as T) ?? null
+      if (app) {
+        const segment = app.cache().segment()
+        const value = await segment.getValue(key)
+        return (value as T) ?? null
+      }
     }
   } catch (error) {
     console.warn(`[Catalyst Cache] get(${key}) failed:`, error)
@@ -65,13 +66,12 @@ export async function cacheSet<T = unknown>(key: string, value: T, ttl: number =
   try {
     if (catalystConfig.isCatalyst) {
       const app = await getCatalystApp()
-      if (!app) throw new Error('Catalyst SDK not initialized')
-      const segment = app.cache().segment()
-      // Expiry is in hours in Catalyst Node SDK, so we convert from seconds.
-      // Minimum is 1 hour for Zoho Catalyst cache TTL.
-      const expiryInHours = Math.max(1, Math.ceil(ttl / 3600))
-      await segment.put(key, value, expiryInHours)
-      return
+      if (app) {
+        const segment = app.cache().segment()
+        const expiryInHours = Math.max(1, Math.ceil(ttl / 3600))
+        await segment.put(key, value, expiryInHours)
+        return
+      }
     }
   } catch (error) {
     console.warn(`[Catalyst Cache] set(${key}) failed:`, error)
@@ -89,10 +89,11 @@ export async function cacheDelete(key: string): Promise<void> {
   try {
     if (catalystConfig.isCatalyst) {
       const app = await getCatalystApp()
-      if (!app) throw new Error('Catalyst SDK not initialized')
-      const segment = app.cache().segment()
-      await segment.delete(key)
-      return
+      if (app) {
+        const segment = app.cache().segment()
+        await segment.delete(key)
+        return
+      }
     }
   } catch (error) {
     console.warn(`[Catalyst Cache] delete(${key}) failed:`, error)
@@ -103,17 +104,6 @@ export async function cacheDelete(key: string): Promise<void> {
 
 /** Clear all cache entries. */
 export async function cacheClear(): Promise<void> {
-  try {
-    if (catalystConfig.isCatalyst) {
-      // In the Node SDK, clearing all cache requires deleting the segment or we clear memory cache.
-      // We can iterate and delete or reset. Since clear is rarely used in Next.js, we reset memory.
-      memoryCache.clear()
-      return
-    }
-  } catch (error) {
-    console.warn('[Catalyst Cache] clear() failed:', error)
-  }
-
   memoryCache.clear()
 }
 
