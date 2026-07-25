@@ -13,6 +13,7 @@
  */
 
 import { catalystConfig } from './config'
+import { getCatalystSDK } from './sdk'
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 
@@ -80,7 +81,7 @@ export async function login(email: string, password: string): Promise<AuthResult
   try {
     if (catalystConfig.isCatalyst) {
       // Catalyst Authentication
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const auth = app.auth()
 

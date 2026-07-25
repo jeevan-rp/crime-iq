@@ -111,7 +111,7 @@ export function SearchView() {
         </div>
         <div>
           <h2 className="text-2xl font-bold tracking-tight">FIR Records</h2>
-          <p className="text-xs text-muted-foreground">Search and browse {total.toLocaleString('en-IN')} crime records</p>
+          <p className="text-xs text-muted-foreground">Search and browse {(total ?? 0).toLocaleString('en-IN')} crime records</p>
         </div>
       </div>
 
@@ -269,7 +269,7 @@ export function SearchView() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-4 py-3 border-t">
               <p className="text-xs text-muted-foreground">
-                Showing {((page - 1) * 20) + 1}–{Math.min(page * 20, total)} of {total.toLocaleString('en-IN')}
+                Showing {((page - 1) * 20) + 1}–{Math.min(page * 20, total || 0)} of {(total ?? 0).toLocaleString('en-IN')}
               </p>
               <div className="flex gap-1">
                 <Button

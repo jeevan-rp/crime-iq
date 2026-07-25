@@ -11,6 +11,7 @@
  */
 
 import { catalystConfig } from './config'
+import { getCatalystSDK } from './sdk'
 
 // ─── In-Memory Cache Implementation ──────────────────────────────
 
@@ -40,7 +41,7 @@ export async function cacheGet<T = unknown>(key: string): Promise<T | null> {
   try {
     if (catalystConfig.isCatalyst) {
       // Catalyst Cache SDK call
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const cache = app.cache()
       const result = await cache.get(key)
@@ -64,7 +65,7 @@ export async function cacheGet<T = unknown>(key: string): Promise<T | null> {
 export async function cacheSet<T = unknown>(key: string, value: T, ttl: number = 300): Promise<void> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const cache = app.cache()
       await cache.put(key, value, { ttl })
@@ -85,7 +86,7 @@ export async function cacheSet<T = unknown>(key: string, value: T, ttl: number =
 export async function cacheDelete(key: string): Promise<void> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const cache = app.cache()
       await cache.delete(key)
@@ -102,7 +103,7 @@ export async function cacheDelete(key: string): Promise<void> {
 export async function cacheClear(): Promise<void> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const cache = app.cache()
       await cache.clear()

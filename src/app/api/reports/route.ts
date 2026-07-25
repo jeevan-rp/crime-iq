@@ -73,7 +73,8 @@ export async function POST(request: NextRequest) {
     // On Catalyst, use SmartBrowz to generate actual PDF
     if (catalystConfig.isCatalyst) {
       try {
-        const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+        const { getCatalystSDK } = await import('@/lib/catalyst/sdk')
+        const { ZCatalystApp } = await getCatalystSDK()
         const app = ZCatalystApp.getInstance()
         const smartbrowz = app.smartbrowz()
         

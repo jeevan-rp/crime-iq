@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import ZAI from 'z-ai-web-dev-sdk';
+import { GoogleGenAI } from '@google/genai';
 
 const SYSTEM_PROMPT = `You are an AI Crime Intelligence Analyst for Karnataka Police. You have access to real FIR data, crime statistics, and predictions. Answer questions about crime data, trends, and patterns. Always cite specific FIR numbers and data points when possible. Be professional and helpful. Use markdown formatting for structured responses. If the user asks about something unrelated to crime data, politely redirect them.`;
 
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     // Extract keywords from user message for DB queries
     const lowerMessage = message.toLowerCase();
     const keywords = lowerMessage.split(/\s+/).filter(
-      (w) => w.length > 2 && !['the', 'and', 'for', 'are', 'was', 'with', 'from', 'that', 'this', 'what', 'how', 'can', 'you', 'tell', 'about', 'many', 'much', 'does', 'have'].includes(w)
+      (w) => w.length > 2 && !['the', 'and', 'for', 'are', 'was', 'with', 'from', 'that', 'this', 'what', 'how', 'can', 'you', 'tell', 'about', 'many', 'much', 'does', 'have', 'show', 'list', 'give', 'me'].includes(w)
     );
 
     // Build database context
@@ -123,16 +123,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // High risk / predictions check
+    if (lowerMessage.includes('risk') || lowerMessage.includes('predict') || lowerMessage.includes('trend')) {
+      const topPredictions = await db.prediction.findMany({
+        take: 10,
+        orderBy: { riskScore: 'desc' },
+      });
+      if (topPredictions.length > 0) {
+        contextParts.push(`HIGH RISK PREDICTIONS:\n` + topPredictions.map((p) => `• District: ${p.district} | Crime: ${p.crimeType} | Risk Score: ${p.riskScore}/100 | Month: ${p.month} | Factors: ${p.factors}`).join('\n'));
+      }
+    }
+
     // If no specific context was built, add general context
     if (contextParts.length <= 1) {
       const recentFirs = await db.fir.findMany({
-        take: 5,
+        take: 8,
         orderBy: { date: 'desc' },
       });
       recentFirs.forEach((fir) => {
         if (!sources.includes(fir.firNumber)) sources.push(fir.firNumber);
       });
-      contextParts.push(`RECENT FIRs: ${recentFirs.map((f) => `${f.firNumber} — ${f.crimeType} in ${f.district} (${f.status})`).join('; ')}`);
+      contextParts.push(`RECENT FIRs: ${recentFirs.map((f) => `${f.firNumber} — ${f.crimeType} in ${f.district} (${f.status}, Severity: ${f.severity})`).join('; ')}`);
 
       const crimeByType = await db.fir.groupBy({
         by: ['crimeType'],
@@ -142,26 +153,76 @@ export async function POST(request: NextRequest) {
       contextParts.push(`CRIME BREAKDOWN: ${crimeByType.map((c) => `${c.crimeType}: ${c._count.crimeType}`).join(', ')}`);
     }
 
-    // Build final prompt with context
-    const contextMessage = `DATABASE CONTEXT:\n\n${contextParts.join('\n\n')}\n\nBased on the above crime data, answer the user's question. Cite FIR numbers when referencing specific cases.`;
+    // Check for Gemini API key
+    const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
-    // Call LLM
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'assistant', content: SYSTEM_PROMPT },
-        { role: 'user', content: contextMessage },
-        { role: 'user', content: message },
-      ],
-      thinking: { type: 'disabled' },
-    });
+    if (apiKey) {
+      try {
+        const ai = new GoogleGenAI({ apiKey });
+        const contextMessage = `DATABASE CONTEXT:\n\n${contextParts.join('\n\n')}\n\nBased on the above crime data, answer the user's question. Cite FIR numbers when referencing specific cases.`;
+        
+        const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+        const aiResponse = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `${SYSTEM_PROMPT}\n\n${contextMessage}\n\nUSER QUESTION: ${message}` }]
+            }
+          ]
+        });
 
-    const response = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
+        const responseText = aiResponse.text;
+        if (responseText) {
+          return NextResponse.json({
+            response: responseText,
+            sources: [...new Set(sources)],
+          });
+        }
+      } catch (geminiErr) {
+        console.error('Gemini API execution error, falling back to local synthesis:', geminiErr);
+      }
+    }
+
+    // Fallback synthesis if API key is not present or API call fails
+    let fallbackMarkdown = '';
+    
+    if (lowerMessage.includes('risk') || lowerMessage.includes('trend') || lowerMessage.includes('predict')) {
+      const predictions = await db.prediction.findMany({
+        take: 5,
+        orderBy: { riskScore: 'desc' },
+      });
+      fallbackMarkdown = `### ⚠️ High Risk Areas & Predictive Analytics\n\nBased on spatial-temporal predictive analysis model for Karnataka State:\n\n`;
+      predictions.forEach((p) => {
+        fallbackMarkdown += `* **${p.district}** — **${p.crimeType}** (Risk Score: **${p.riskScore}/100**)\n  * Key Factors: ${p.factors}\n  * Forecasted Period: ${p.month}\n\n`;
+      });
+      fallbackMarkdown += `*Recommendation:* Increase patrolling frequency and deploy unit officers to designated hot spots.`;
+    } else {
+      const recentFirs = await db.fir.findMany({
+        take: 5,
+        orderBy: { date: 'desc' },
+      });
+      const totalFirs = await db.fir.count();
+      const openFirs = await db.fir.count({ where: { status: 'Open' } });
+      const closedFirs = await db.fir.count({ where: { status: 'Closed' } });
+
+      fallbackMarkdown = `### 📊 Karnataka Police Crime Intelligence Report\n\n`;
+      fallbackMarkdown += `**Active Summary Statistics:**\n`;
+      fallbackMarkdown += `* **Total Registered FIRs:** ${totalFirs}\n`;
+      fallbackMarkdown += `* **Open Cases:** ${openFirs}\n`;
+      fallbackMarkdown += `* **Closed Cases:** ${closedFirs}\n\n`;
+      fallbackMarkdown += `**Recent Notable FIR Entries:**\n`;
+      recentFirs.forEach((f) => {
+        sources.push(f.firNumber);
+        fallbackMarkdown += `* **[${f.firNumber}]** ${f.crimeType} in *${f.district} (${f.station})* — Status: \`${f.status}\` | Severity: **${f.severity}**\n  * Description: ${f.description}\n\n`;
+      });
+    }
 
     return NextResponse.json({
-      response,
+      response: fallbackMarkdown,
       sources: [...new Set(sources)],
     });
+
   } catch (error) {
     console.error('Chat API error:', error);
     return NextResponse.json(
@@ -170,3 +231,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

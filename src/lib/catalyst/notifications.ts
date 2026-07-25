@@ -10,6 +10,7 @@
  */
 
 import { catalystConfig } from './config'
+import { getCatalystSDK } from './sdk'
 
 export interface NotificationPayload {
   title: string
@@ -35,7 +36,7 @@ export async function sendPushNotification(
 
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const push = app.push()
 
@@ -64,7 +65,7 @@ export async function sendPushNotification(
 export async function subscribeToTopic(token: string, topic: string): Promise<SubscriptionResult> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const push = app.push()
       await push.subscribeToTopic(token, topic)

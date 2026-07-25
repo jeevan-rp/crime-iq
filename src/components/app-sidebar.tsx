@@ -63,7 +63,7 @@ export function AppSidebar() {
               <span className="flex-1 text-left">{item.label}</span>
               {showBadge && (
                 <span className="bg-orange-500/20 text-orange-400 text-[10px] px-1.5 py-0.5 rounded-full">
-                  {totalFirs.toLocaleString('en-IN')}
+                  {(totalFirs ?? 0).toLocaleString('en-IN')}
                 </span>
               )}
               {isActive && (

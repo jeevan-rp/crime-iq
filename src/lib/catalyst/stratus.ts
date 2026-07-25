@@ -11,6 +11,7 @@
  */
 
 import { catalystConfig } from './config'
+import { getCatalystSDK } from './sdk'
 import { mkdir, writeFile, readFile, unlink, readdir, stat } from 'fs/promises'
 import path from 'path'
 
@@ -39,7 +40,7 @@ export async function uploadFile(
 ): Promise<UploadedFile> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const stratus = app.stratus()
 
@@ -84,7 +85,7 @@ export async function uploadFile(
 export async function getDownloadUrl(folder: string, fileName: string): Promise<string> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const stratus = app.stratus()
       const result = await stratus.files().download(folder, fileName)
@@ -101,7 +102,7 @@ export async function getDownloadUrl(folder: string, fileName: string): Promise<
 export async function deleteFile(folder: string, fileName: string): Promise<void> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const stratus = app.stratus()
       await stratus.files().delete(folder, fileName)
@@ -124,7 +125,7 @@ export async function deleteFile(folder: string, fileName: string): Promise<void
 export async function listFiles(folder: string): Promise<UploadedFile[]> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+      const { ZCatalystApp } = await getCatalystSDK()
       const app = ZCatalystApp.getInstance()
       const stratus = app.stratus()
       const files = await stratus.files().getDetails(folder)

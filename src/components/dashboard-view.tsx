@@ -27,7 +27,7 @@ import {
 import { useAppStore } from '@/store/use-app-store'
 import { useEffect } from 'react'
 
-const INR = (n: number) => n.toLocaleString('en-IN')
+const INR = (n?: number | null) => (typeof n === 'number' && !isNaN(n) ? n.toLocaleString('en-IN') : '0')
 
 function severityColor(severity: string) {
   switch (severity) {
@@ -61,7 +61,7 @@ export function DashboardView() {
   }, [data, setTotalFirs])
 
   if (isLoading) return <DashboardSkeleton />
-  if (!data) return <p className="text-muted-foreground p-6">Failed to load dashboard data.</p>
+  if (!data || data.error) return <p className="text-muted-foreground p-6">Failed to load dashboard data.</p>
 
   const highSeverityCount = (data.severityDistribution || [])
     .filter((s: { severity: string; count: number }) => s.severity === 'High' || s.severity === 'Critical')
@@ -184,7 +184,7 @@ export function DashboardView() {
               </TableHeader>
               <TableBody>
                 {(data.recentFirs || []).slice(0, 8).map((fir: Record<string, unknown>) => (
-                  <TableRow key={fir.id}>
+                  <TableRow key={fir.id as string}>
                     <TableCell className="font-mono text-xs">{fir.firNumber as string}</TableCell>
                     <TableCell className="text-xs">{new Date(fir.date as string).toLocaleDateString('en-IN')}</TableCell>
                     <TableCell className="text-xs">{fir.district as string}</TableCell>

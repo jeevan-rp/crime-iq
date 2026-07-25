@@ -9,6 +9,7 @@
  */
 
 import { catalystConfig } from './config'
+import { getCatalystSDK } from './sdk'
 
 export interface QueryCondition {
   column: string
@@ -37,7 +38,7 @@ export async function getTable(tableName: string): Promise<CatalystTable | null>
   }
 
   try {
-    const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+    const { ZCatalystApp } = await getCatalystSDK()
     const app = ZCatalystApp.getInstance()
     const datastore = app.datastore()
     const table = datastore.table(tableName)
@@ -96,7 +97,7 @@ export async function fullTextSearch(
   if (!catalystConfig.isCatalyst) return []
 
   try {
-    const { ZCatalystApp } = await import('zoho-catalyst-sdk')
+    const { ZCatalystApp } = await getCatalystSDK()
     const app = ZCatalystApp.getInstance()
     const datastore = app.datastore()
     const table = datastore.table(tableName)
