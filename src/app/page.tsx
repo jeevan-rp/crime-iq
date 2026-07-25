@@ -1,10 +1,14 @@
 'use client'
 
-import { useState, useCallback, useSyncExternalStore, useEffect } from 'react'
+import { useState, useEffect, useSyncExternalStore, useCallback } from 'react'
 import dynamic from 'next/dynamic'
-import { Menu, Moon, Sun, Mic, MicOff, Volume2, VolumeX, Shield, Lock, Mail, Loader2, Sparkles } from 'lucide-react'
+import { 
+  Shield, Moon, Sun, Mic, MicOff, Volume2, VolumeX, 
+  Activity, Search, Bell, Clock, Cpu, LayoutDashboard, 
+  Map, Network, ListTodo, TrendingUp, HelpCircle
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useAppStore } from '@/store/use-app-store'
+import { useAppStore, type ViewType } from '@/store/use-app-store'
 import { useTheme } from 'next-themes'
 import { AppSidebar } from '@/components/app-sidebar'
 import { DashboardView } from '@/components/dashboard-view'
@@ -15,8 +19,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
+import { LoginView } from '@/components/login-view'
+import { motion, AnimatePresence } from 'framer-motion'
 
-// Dynamic imports for components that use browser-only libraries (Leaflet, Cytoscape)
+// Dynamic imports for components that use browser-only libraries
 const MapView = dynamic(() => import('@/components/map-view').then((m) => ({ default: m.MapView })), {
   loading: () => <MapSkeleton />,
   ssr: false,
@@ -30,14 +36,8 @@ const NetworkView = dynamic(() => import('@/components/network-view').then((m) =
 function MapSkeleton() {
   return (
     <div className="space-y-4">
-      <Skeleton className="h-8 w-64" />
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <Skeleton className="lg:col-span-3 h-[520px] rounded-lg" />
-        <div className="space-y-4">
-          <Skeleton className="h-48 rounded-lg" />
-          <Skeleton className="h-36 rounded-lg" />
-        </div>
-      </div>
+      <Skeleton className="h-8 w-64 bg-slate-900/60" />
+      <Skeleton className="w-full h-[520px] rounded-2xl bg-slate-900/60" />
     </div>
   )
 }
@@ -45,14 +45,8 @@ function MapSkeleton() {
 function NetworkSkeleton() {
   return (
     <div className="space-y-4">
-      <Skeleton className="h-8 w-64" />
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <Skeleton className="lg:col-span-3 h-[520px] rounded-lg" />
-        <div className="space-y-4">
-          <Skeleton className="h-48 rounded-lg" />
-          <Skeleton className="h-36 rounded-lg" />
-        </div>
-      </div>
+      <Skeleton className="h-8 w-64 bg-slate-900/60" />
+      <Skeleton className="w-full h-[520px] rounded-2xl bg-slate-900/60" />
     </div>
   )
 }
@@ -80,20 +74,36 @@ function ViewSwitcher() {
 }
 
 export default function Home() {
-  const { sidebarCollapsed, toggleSidebar, user, setUser } = useAppStore()
+  const { activeView, setActiveView, sidebarCollapsed, user, setUser } = useAppStore()
   const { theme, setTheme } = useTheme()
   const [isListening, setIsListening] = useState(false)
   const [ttsEnabled, setTtsEnabled] = useState(false)
   const [loadingSession, setLoadingSession] = useState(true)
-  
-  // Login form state
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [submittingLogin, setSubmittingLogin] = useState(false)
+  const [currentTime, setCurrentTime] = useState('')
+  const [simulatedLatency, setSimulatedLatency] = useState(12)
 
   const mounted = useMounted()
 
-  // Fetch current session details on mount
+  // Live ticking clock for mission control header
+  useEffect(() => {
+    const updateTime = () => {
+      const date = new Date()
+      setCurrentTime(date.toLocaleTimeString('en-US', { hour12: false }))
+    }
+    updateTime()
+    const timer = setInterval(updateTime, 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Simulating small network latency fluctuations
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSimulatedLatency(Math.floor(Math.random() * 8) + 10)
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Validate active session
   useEffect(() => {
     const checkSession = async () => {
       try {
@@ -112,63 +122,6 @@ export default function Home() {
     }
     checkSession()
   }, [setUser])
-
-  const handleLoginSubmit = async (e?: React.FormEvent, customCredentials?: { e: string; p: string }) => {
-    if (e) e.preventDefault()
-    
-    const loginEmail = customCredentials ? customCredentials.e : email
-    const loginPassword = customCredentials ? customCredentials.p : password
-
-    if (!loginEmail || !loginPassword) {
-      toast.error('Please enter both email and password')
-      return
-    }
-
-    setSubmittingLogin(true)
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
-      })
-
-      const data = await res.json()
-      if (res.ok && data?.success) {
-        setUser(data.user)
-        toast.success(`Welcome back, ${data.user.name}`)
-      } else {
-        toast.error(data?.error || 'Authentication failed')
-      }
-    } catch {
-      toast.error('Network connection failed')
-    } finally {
-      setSubmittingLogin(false)
-    }
-  }
-
-  const handleQuickLogin = (role: string) => {
-    let e = ''
-    let p = ''
-    switch (role) {
-      case 'Admin':
-        e = 'admin@kp.gov.in'
-        p = 'Admin@123'
-        break
-      case 'Officer':
-        e = 'officer@kp.gov.in'
-        p = 'Officer@123'
-        break
-      case 'Analyst':
-        e = 'analyst@kp.gov.in'
-        p = 'Analyst@123'
-        break
-      case 'Investigator':
-        e = 'investigator@kp.gov.in'
-        p = 'Investigator@123'
-        break
-    }
-    handleLoginSubmit(undefined, { e, p })
-  }
 
   const speakLastResponse = useCallback(() => {
     if (ttsEnabled) return
@@ -266,203 +219,183 @@ export default function Home() {
     recognition.start()
   }, [isListening])
 
-  // Render loading skeleton during initial session validation
   if (loadingSession) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
-        <Loader2 className="h-10 w-10 text-orange-500 animate-spin" />
-        <p className="text-slate-400 text-sm tracking-wider font-semibold animate-pulse uppercase">Verifying Bureau Credentials...</p>
+      <div className="min-h-screen bg-[#08090B] flex flex-col items-center justify-center gap-4">
+        <Activity className="h-8 w-8 text-cyan-400 animate-pulse" />
+        <p className="text-xs text-slate-500 font-mono tracking-widest uppercase">Initializing Secure Tunnel...</p>
       </div>
     )
   }
 
-  // Render Premium Login Card if not authenticated
   if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-950 relative overflow-hidden flex items-center justify-center p-4">
-        {/* Glow Effects */}
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-orange-500/10 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
-
-        <div className="w-full max-w-md bg-slate-900/80 border border-white/10 rounded-2xl backdrop-blur-xl p-8 shadow-2xl relative z-10">
-          <div className="flex flex-col items-center mb-6">
-            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow-lg shadow-orange-500/30 mb-3">
-              <Shield className="h-7 w-7 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-1.5">
-              CRIME IQ <span className="text-orange-500 text-xs px-2 py-0.5 rounded-full bg-orange-500/10 font-bold border border-orange-500/20">PORTAL</span>
-            </h1>
-            <p className="text-xs text-slate-400 mt-1 font-semibold uppercase tracking-wider text-center">Karnataka State Police Intelligence Bureau</p>
-          </div>
-
-          <form onSubmit={handleLoginSubmit} className="space-y-4 mb-6">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Bureau Email</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@kp.gov.in"
-                  className="w-full bg-slate-950 border border-white/10 rounded-lg py-2.5 pl-10 pr-4 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Access Key</label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-slate-950 border border-white/10 rounded-lg py-2.5 pl-10 pr-4 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all"
-                />
-              </div>
-            </div>
-
-            <Button
-              type="submit"
-              disabled={submittingLogin}
-              className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-2.5 rounded-lg transition-all shadow-lg shadow-orange-500/20 cursor-pointer flex items-center justify-center gap-2"
-            >
-              {submittingLogin ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Decrypt & Enter'}
-            </Button>
-          </form>
-
-          {/* Quick Evaluation Logins */}
-          <div className="border-t border-white/10 pt-4">
-            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 flex items-center gap-1.5 mb-3">
-              <Sparkles className="h-3.5 w-3.5 text-orange-400" /> Quick-Access Credentials
-            </span>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => handleQuickLogin('Admin')}
-                disabled={submittingLogin}
-                className="bg-slate-950 hover:bg-slate-800 border border-white/5 hover:border-red-500/30 rounded-lg p-2.5 text-left transition-all cursor-pointer group"
-              >
-                <p className="text-[10px] font-bold text-red-400 group-hover:text-red-300">Admin Portal</p>
-                <p className="text-[9px] text-slate-500 truncate mt-0.5">DSP Raghavendra</p>
-              </button>
-              <button
-                onClick={() => handleQuickLogin('Officer')}
-                disabled={submittingLogin}
-                className="bg-slate-950 hover:bg-slate-800 border border-white/5 hover:border-blue-500/30 rounded-lg p-2.5 text-left transition-all cursor-pointer group"
-              >
-                <p className="text-[10px] font-bold text-blue-400 group-hover:text-blue-300">Officer View</p>
-                <p className="text-[9px] text-slate-500 truncate mt-0.5">Inspector Kavitha</p>
-              </button>
-              <button
-                onClick={() => handleQuickLogin('Analyst')}
-                disabled={submittingLogin}
-                className="bg-slate-950 hover:bg-slate-800 border border-white/5 hover:border-purple-500/30 rounded-lg p-2.5 text-left transition-all cursor-pointer group"
-              >
-                <p className="text-[10px] font-bold text-purple-400 group-hover:text-purple-300">Analyst Tools</p>
-                <p className="text-[9px] text-slate-500 truncate mt-0.5">SI Vikram</p>
-              </button>
-              <button
-                onClick={() => handleQuickLogin('Investigator')}
-                disabled={submittingLogin}
-                className="bg-slate-950 hover:bg-slate-800 border border-white/5 hover:border-emerald-500/30 rounded-lg p-2.5 text-left transition-all cursor-pointer group"
-              >
-                <p className="text-[10px] font-bold text-emerald-400 group-hover:text-emerald-300">Investigator</p>
-                <p className="text-[9px] text-slate-500 truncate mt-0.5">CPI Meera</p>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
+    return <LoginView onLoginSuccess={(u) => setUser(u)} />
   }
 
-  // Render normal platform UI once authenticated
+  // Define dock buttons matching Figma/Apple-style floating dock
+  const dockItems: { view: ViewType; label: string; icon: React.ElementType }[] = [
+    { view: 'dashboard', label: 'Console', icon: LayoutDashboard },
+    { view: 'map', label: 'Telemetry Map', icon: Map },
+    { view: 'chat', label: 'AI Intel', icon: Cpu },
+    { view: 'network', label: 'Entity Vector', icon: Network },
+    { view: 'search', label: 'Data Logs', icon: ListTodo },
+    { view: 'predictions', label: 'Threat matrix', icon: TrendingUp },
+  ]
+
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="min-h-screen flex bg-background">
+      <div className="min-h-screen bg-[#08090B] text-foreground flex relative overflow-hidden aurora-bg cyber-grid">
+        
+        {/* Sidebar Nav */}
         <AppSidebar />
 
+        {/* Content Shell */}
         <main
           className={cn(
-            'flex-1 transition-all duration-300 flex flex-col',
-            sidebarCollapsed ? 'ml-0' : 'ml-64'
+            'flex-1 transition-all duration-300 flex flex-col min-h-screen relative z-10',
+            sidebarCollapsed ? 'ml-16' : 'ml-64'
           )}
         >
-          <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-4 border-b bg-background/80 backdrop-blur-sm">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 cursor-pointer"
-                onClick={toggleSidebar}
-              >
-                <Menu className="h-4 w-4" />
-              </Button>
+          {/* Futuristic Floating Header */}
+          <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-6 border-b border-white/5 bg-[#08090B]/60 backdrop-blur-md">
+            <div className="flex items-center gap-6">
+              {/* Logo / Badge */}
+              <div className="flex items-center gap-2">
+                <Shield className="h-5 w-5 text-cyan-400" />
+                <span className="text-sm font-black tracking-widest text-white font-mono">CRIME IQ</span>
+              </div>
             </div>
 
-            <div className="flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={isListening ? 'destructive' : 'ghost'}
-                    size="icon"
-                    className="h-8 w-8 cursor-pointer"
-                    onClick={toggleListening}
-                  >
-                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isListening ? 'Stop listening' : 'Voice input'}
-                </TooltipContent>
-              </Tooltip>
+            {/* Middle Search Bar */}
+            <div className="hidden md:flex items-center w-80 relative">
+              <Search className="absolute left-3 h-4 w-4 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Search telemetry ID, coordinate..."
+                className="w-full bg-[#0d0f14]/50 border border-white/5 rounded-xl py-1.5 pl-9 pr-4 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 transition-all font-mono"
+              />
+            </div>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={ttsEnabled ? 'default' : 'ghost'}
-                    size="icon"
-                    className="h-8 w-8 cursor-pointer"
-                    onClick={ttsEnabled ? stopSpeaking : speakLastResponse}
-                  >
-                    {ttsEnabled ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {ttsEnabled ? 'Stop speaking' : 'Read last response'}
-                </TooltipContent>
-              </Tooltip>
+            {/* Right Command indicators */}
+            <div className="flex items-center gap-4">
+              {/* Live Ticking Clock */}
+              <div className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-slate-400 bg-white/5 border border-white/5 rounded-lg px-2.5 py-1">
+                <Clock className="h-3.5 w-3.5 text-cyan-400" />
+                <span>{currentTime}</span>
+              </div>
 
-              {mounted && (
+              {/* Controls */}
+              <div className="flex items-center gap-1 bg-white/5 border border-white/5 rounded-lg p-0.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant="ghost"
+                      variant={isListening ? 'destructive' : 'ghost'}
                       size="icon"
-                      className="h-8 w-8 cursor-pointer"
-                      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                      className="h-8 w-8 cursor-pointer text-slate-400 hover:text-white"
+                      onClick={toggleListening}
                     >
-                      {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                      {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-                  </TooltipContent>
+                  <TooltipContent>Voice input</TooltipContent>
                 </Tooltip>
-              )}
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={ttsEnabled ? 'default' : 'ghost'}
+                      size="icon"
+                      className="h-8 w-8 cursor-pointer text-slate-400 hover:text-white"
+                      onClick={ttsEnabled ? stopSpeaking : speakLastResponse}
+                    >
+                      {ttsEnabled ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Speech feedback</TooltipContent>
+                </Tooltip>
+
+                {mounted && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 cursor-pointer text-slate-400 hover:text-white"
+                    onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  >
+                    {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                  </Button>
+                )}
+              </div>
             </div>
           </header>
 
-          <div className="flex-1 p-6 overflow-y-auto">
-            <ViewSwitcher />
+          {/* Main content body */}
+          <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar pb-28">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeView}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.4 }}
+              >
+                <ViewSwitcher />
+              </motion.div>
+            </AnimatePresence>
           </div>
 
-          <footer className="border-t py-3 px-4 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>CRIME IQ v1.0 — Karnataka Police Intelligence Bureau</span>
-            <span>AI-Powered Crime Intelligence Platform</span>
+          {/* Mission Control Status Footer */}
+          <footer className="border-t border-white/5 py-4 px-6 flex items-center justify-between text-[10px] font-mono text-slate-500 bg-[#08090B]/60 backdrop-blur-md relative z-10">
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+                SYSTEMS OPERATIONAL
+              </span>
+              <span className="hidden sm:inline border-l border-white/10 h-3" />
+              <span className="hidden sm:inline">LATENCY: {simulatedLatency}ms</span>
+              <span className="hidden sm:inline border-l border-white/10 h-3" />
+              <span className="hidden sm:inline">FEED: SECURE-KA-POLICE-DB</span>
+            </div>
+            <div>
+              <span>CRIME IQ v1.2 — ENCRYPTED NODE</span>
+            </div>
           </footer>
+
+          {/* Floating Dock Navigation (macOS/Figma-style) */}
+          <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 pointer-events-auto">
+            <div className="glass-panel rounded-2xl px-4 py-3 bg-[#0d0f14]/80 flex items-center gap-1.5 shadow-2xl border-white/5 shadow-cyan-500/5">
+              {dockItems.map((item) => {
+                const isActive = activeView === item.view
+                const Icon = item.icon
+                return (
+                  <Tooltip key={item.view}>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setActiveView(item.view)}
+                        className={cn(
+                          "relative h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-300 cursor-pointer border",
+                          isActive 
+                            ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/30 shadow-lg shadow-cyan-500/10" 
+                            : "text-slate-400 hover:text-white bg-slate-900/40 border-transparent hover:bg-slate-900"
+                        )}
+                      >
+                        <Icon className="h-5 w-5" />
+                        {isActive && (
+                          <motion.div 
+                            layoutId="activeDockDot"
+                            className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-cyan-400"
+                          />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="bg-slate-950 text-white border-white/5 font-mono text-[10px]">
+                      {item.label.toUpperCase()}
+                    </TooltipContent>
+                  </Tooltip>
+                )
+              })}
+            </div>
+          </div>
+
         </main>
       </div>
     </TooltipProvider>
