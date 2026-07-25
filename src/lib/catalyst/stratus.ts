@@ -1,7 +1,7 @@
 /**
  * Catalyst Stratus (File Storage) Adapter
  * 
- * When Catalyst is configured: uses Catalyst Stratus for S3-style object storage
+ * When Catalyst is configured: uses Catalyst File Store for object storage
  * When running locally: uses local filesystem under public/uploads/
  * 
  * Usage:
@@ -11,7 +11,7 @@
  */
 
 import { catalystConfig } from './config'
-import { getCatalystSDK } from './sdk'
+import { getCatalystApp } from './sdk'
 import { mkdir, writeFile, readFile, unlink, readdir, stat } from 'fs/promises'
 import path from 'path'
 
@@ -40,24 +40,23 @@ export async function uploadFile(
 ): Promise<UploadedFile> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await getCatalystSDK()
-      const app = ZCatalystApp.getInstance()
-      const stratus = app.stratus()
+      const app = await getCatalystApp()
+      const filestore = app.filestore()
 
       const buffer = fileData instanceof File
         ? Buffer.from(await fileData.arrayBuffer())
         : Buffer.from(fileData)
 
-      const result = await stratus.files().upload(folder, {
-        file: buffer,
+      // Uploading file to specific folder in Catalyst
+      const result = await filestore.folder(folder).uploadFile({
+        code: buffer,
         name: fileName,
-        type: contentType || 'application/octet-stream',
       })
 
       return {
         fileName,
         folder,
-        url: result.download_url || `/api/files/${folder}/${fileName}`,
+        url: `/api/files/${folder}/${fileName}`,
         size: buffer.length,
       }
     }
@@ -85,11 +84,10 @@ export async function uploadFile(
 export async function getDownloadUrl(folder: string, fileName: string): Promise<string> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await getCatalystSDK()
-      const app = ZCatalystApp.getInstance()
-      const stratus = app.stratus()
-      const result = await stratus.files().download(folder, fileName)
-      return result.url || `/api/files/${folder}/${fileName}`
+      const app = await getCatalystApp()
+      const filestore = app.filestore()
+      const file = await filestore.folder(folder).getFileDetails(fileName)
+      return `/api/files/${folder}/${fileName}`
     }
   } catch (error) {
     console.warn(`[Stratus] getDownloadUrl failed for ${folder}/${fileName}:`, error)
@@ -102,10 +100,9 @@ export async function getDownloadUrl(folder: string, fileName: string): Promise<
 export async function deleteFile(folder: string, fileName: string): Promise<void> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await getCatalystSDK()
-      const app = ZCatalystApp.getInstance()
-      const stratus = app.stratus()
-      await stratus.files().delete(folder, fileName)
+      const app = await getCatalystApp()
+      const filestore = app.filestore()
+      await filestore.folder(folder).deleteFile(fileName)
       return
     }
   } catch (error) {
@@ -125,14 +122,14 @@ export async function deleteFile(folder: string, fileName: string): Promise<void
 export async function listFiles(folder: string): Promise<UploadedFile[]> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await getCatalystSDK()
-      const app = ZCatalystApp.getInstance()
-      const stratus = app.stratus()
-      const files = await stratus.files().getDetails(folder)
+      const app = await getCatalystApp()
+      const filestore = app.filestore()
+      // List all files in folder details
+      const files = await filestore.folder(folder).getFileDetails()
       return (files || []).map((f: any) => ({
         fileName: f.file_name,
         folder,
-        url: f.download_url || `/api/files/${folder}/${f.file_name}`,
+        url: `/api/files/${folder}/${f.file_name}`,
         size: f.file_size,
       }))
     }

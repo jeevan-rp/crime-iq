@@ -11,7 +11,7 @@
  */
 
 import { catalystConfig } from './config'
-import { getCatalystSDK } from './sdk'
+import { getCatalystApp } from './sdk'
 
 // ─── In-Memory Cache Implementation ──────────────────────────────
 
@@ -40,12 +40,11 @@ if (typeof globalThis !== 'undefined') {
 export async function cacheGet<T = unknown>(key: string): Promise<T | null> {
   try {
     if (catalystConfig.isCatalyst) {
-      // Catalyst Cache SDK call
-      const { ZCatalystApp } = await getCatalystSDK()
-      const app = ZCatalystApp.getInstance()
-      const cache = app.cache()
-      const result = await cache.get(key)
-      return result?.value as T ?? null
+      const app = await getCatalystApp()
+      if (!app) throw new Error('Catalyst SDK not initialized')
+      const segment = app.cache().segment()
+      const value = await segment.getValue(key)
+      return (value as T) ?? null
     }
   } catch (error) {
     console.warn(`[Catalyst Cache] get(${key}) failed:`, error)
@@ -65,10 +64,13 @@ export async function cacheGet<T = unknown>(key: string): Promise<T | null> {
 export async function cacheSet<T = unknown>(key: string, value: T, ttl: number = 300): Promise<void> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await getCatalystSDK()
-      const app = ZCatalystApp.getInstance()
-      const cache = app.cache()
-      await cache.put(key, value, { ttl })
+      const app = await getCatalystApp()
+      if (!app) throw new Error('Catalyst SDK not initialized')
+      const segment = app.cache().segment()
+      // Expiry is in hours in Catalyst Node SDK, so we convert from seconds.
+      // Minimum is 1 hour for Zoho Catalyst cache TTL.
+      const expiryInHours = Math.max(1, Math.ceil(ttl / 3600))
+      await segment.put(key, value, expiryInHours)
       return
     }
   } catch (error) {
@@ -86,10 +88,10 @@ export async function cacheSet<T = unknown>(key: string, value: T, ttl: number =
 export async function cacheDelete(key: string): Promise<void> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await getCatalystSDK()
-      const app = ZCatalystApp.getInstance()
-      const cache = app.cache()
-      await cache.delete(key)
+      const app = await getCatalystApp()
+      if (!app) throw new Error('Catalyst SDK not initialized')
+      const segment = app.cache().segment()
+      await segment.delete(key)
       return
     }
   } catch (error) {
@@ -103,10 +105,9 @@ export async function cacheDelete(key: string): Promise<void> {
 export async function cacheClear(): Promise<void> {
   try {
     if (catalystConfig.isCatalyst) {
-      const { ZCatalystApp } = await getCatalystSDK()
-      const app = ZCatalystApp.getInstance()
-      const cache = app.cache()
-      await cache.clear()
+      // In the Node SDK, clearing all cache requires deleting the segment or we clear memory cache.
+      // We can iterate and delete or reset. Since clear is rarely used in Next.js, we reset memory.
+      memoryCache.clear()
       return
     }
   } catch (error) {

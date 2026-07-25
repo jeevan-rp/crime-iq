@@ -9,7 +9,7 @@
  */
 
 import { catalystConfig } from './config'
-import { getCatalystSDK } from './sdk'
+import { getCatalystApp } from './sdk'
 
 export interface QueryCondition {
   column: string
@@ -38,8 +38,7 @@ export async function getTable(tableName: string): Promise<CatalystTable | null>
   }
 
   try {
-    const { ZCatalystApp } = await getCatalystSDK()
-    const app = ZCatalystApp.getInstance()
+    const app = await getCatalystApp()
     const datastore = app.datastore()
     const table = datastore.table(tableName)
 
@@ -57,20 +56,28 @@ export async function getTable(tableName: string): Promise<CatalystTable | null>
       },
 
       updateRow: async (rowId, data) => {
-        const result = await table.updateRow(rowId, data)
+        // zcatalyst-sdk-node updateRow takes the row object directly containing ROWID
+        const result = await table.updateRow({ ROWID: rowId, ...data })
         return result as Record<string, unknown>
       },
 
       deleteRow: async (rowId) => {
-        await table.deleteRow(rowId)
+        // zcatalyst-sdk-node deletes by referencing row object and calling delete
+        const row = table.row(rowId)
+        await row.delete()
       },
 
       query: async (conditions = []) => {
-        const query = table.query()
-        for (const c of conditions) {
-          query.addCondition(c.column, c.operator, c.value)
+        // Building custom ZCQL query from conditions for zcatalyst-sdk-node compatibility
+        let zcql = `SELECT * FROM ${tableName}`
+        if (conditions.length > 0) {
+          const condStrings = conditions.map(c => {
+            const valStr = typeof c.value === 'string' ? `'${c.value}'` : c.value
+            return `${c.column} ${c.operator} ${valStr}`
+          })
+          zcql += ` WHERE ${condStrings.join(' AND ')}`
         }
-        const result = await query.get()
+        const result = await app.zcql().executeZCQLQuery(zcql)
         return result as Record<string, unknown>[]
       },
 
@@ -97,16 +104,18 @@ export async function fullTextSearch(
   if (!catalystConfig.isCatalyst) return []
 
   try {
-    const { ZCatalystApp } = await getCatalystSDK()
-    const app = ZCatalystApp.getInstance()
-    const datastore = app.datastore()
-    const table = datastore.table(tableName)
-
-    const query = table.searchQuery(searchTerm)
-    for (const col of searchColumns) {
-      query.searchColumn(col)
+    const app = await getCatalystApp()
+    
+    // zcatalyst-sdk-node search implementation
+    const searchConfig = {
+      search: searchTerm,
+      search_table_columns: {
+        [tableName]: searchColumns
+      }
     }
-    const result = await query.get()
+    
+    const search = app.search()
+    const result = await search.executeSearchQuery(searchConfig)
     return result as Record<string, unknown>[]
   } catch (error) {
     console.error(`[DataStore] Search failed on '${tableName}':`, error)

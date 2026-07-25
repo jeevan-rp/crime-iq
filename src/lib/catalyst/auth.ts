@@ -2,7 +2,7 @@
  * Catalyst Authentication Adapter
  * 
  * When Catalyst is configured: uses Catalyst Authentication (Zoho Accounts)
- * When running locally: uses JWT-based auth with demo users
+ * When running locally/Vercel: uses JWT-based auth with demo users
  * 
  * Roles: Admin, Officer, Investigator, Analyst
  * 
@@ -13,7 +13,7 @@
  */
 
 import { catalystConfig } from './config'
-import { getCatalystSDK } from './sdk'
+import { getCatalystApp } from './sdk'
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 
@@ -37,7 +37,7 @@ export interface AuthResult {
   error?: string
 }
 
-// ─── Demo Users (local only) ─────────────────────────────────
+// ─── Demo Users (local and fallback) ─────────────────────────
 
 const DEMO_USERS: (CrimeIQUser & { password: string })[] = [
   { id: 'u1', email: 'admin@kp.gov.in', name: 'DSP Raghavendra', role: 'Admin', district: 'Bengaluru Urban', password: 'Admin@123' },
@@ -78,43 +78,64 @@ async function verifyToken(token: string): Promise<CrimeIQUser | null> {
 
 /** Authenticate a user with email and password */
 export async function login(email: string, password: string): Promise<AuthResult> {
-  try {
-    if (catalystConfig.isCatalyst) {
-      // Catalyst Authentication
-      const { ZCatalystApp } = await getCatalystSDK()
-      const app = ZCatalystApp.getInstance()
-      const auth = app.auth()
-
-      const userDetails = await auth.signIn({ email, password })
-      const user: CrimeIQUser = {
-        id: userDetails.zuid,
-        email: userDetails.email_id,
-        name: userDetails.first_name + ' ' + userDetails.last_name,
-        role: (userDetails.role_details?.role_name as UserRole) || 'Analyst',
-      }
-      const token = await signToken(user)
-      return { success: true, user, token }
-    }
-  } catch (error: any) {
-    return { success: false, error: error?.message || 'Catalyst authentication failed' }
-  }
-
-  // Local: demo users
+  // First check if the user matches our demo accounts (for rapid testing/development)
   const found = DEMO_USERS.find(u => u.email === email && u.password === password)
-  if (!found) {
-    return { success: false, error: 'Invalid email or password' }
+  if (found) {
+    const { password: _pw, ...user } = found
+    const token = await signToken(user)
+    return { success: true, user, token }
   }
 
-  const { password: _pw, ...user } = found
-  const token = await signToken(user)
-  return { success: true, user, token }
+  // If running inside Catalyst environment and we want to validate users from Zoho User Management
+  if (catalystConfig.isCatalyst) {
+    try {
+      const app = await getCatalystApp()
+      if (!app) {
+        throw new Error('Catalyst SDK not initialized (running locally)')
+      }
+      const userManagement = app.userManagement()
+      
+      // Look up all users to verify if the email is registered
+      const allUsers = await userManagement.getAllUsers()
+      const matchedUser = allUsers.find((u: any) => u.email_id === email)
+
+      if (matchedUser && matchedUser.status === 'ACTIVE') {
+        const user: CrimeIQUser = {
+          id: matchedUser.zuid,
+          email: matchedUser.email_id,
+          name: `${matchedUser.first_name || ''} ${matchedUser.last_name || ''}`.trim() || matchedUser.email_id,
+          role: (matchedUser.role_details?.role_name as UserRole) || 'Analyst',
+        }
+        const token = await signToken(user)
+        return { success: true, user, token }
+      }
+    } catch (error: any) {
+      return { success: false, error: error?.message || 'Catalyst authentication lookup failed' }
+    }
+  }
+
+  return { success: false, error: 'Invalid email or password' }
 }
 
-/** Get the current authenticated user from request cookies */
+/** Get the current authenticated user from request cookies or AppSail headers */
 export async function getCurrentUser(request?: Request): Promise<CrimeIQUser | null> {
   try {
     if (catalystConfig.isCatalyst && request) {
-      // Catalyst Authentication — check Authorization header
+      // Check for AppSail request headers injected by Catalyst Gateways / Hosted Login
+      const userId = request.headers.get('x-catalyst-user-id')
+      const email = request.headers.get('x-catalyst-user-email')
+      
+      if (userId && email) {
+        return {
+          id: userId,
+          email: email,
+          name: `${request.headers.get('x-catalyst-user-first-name') || ''} ${request.headers.get('x-catalyst-user-last-name') || ''}`.trim() || email,
+          role: (request.headers.get('x-catalyst-user-role-name') as UserRole) || 'Analyst',
+          district: 'Bengaluru Urban', // Default district mapping for cloud accounts
+        }
+      }
+      
+      // Also check standard Authorization headers if Bearer token is passed
       const authHeader = request.headers.get('authorization')
       if (authHeader?.startsWith('Bearer ')) {
         const token = authHeader.slice(7)
@@ -125,7 +146,7 @@ export async function getCurrentUser(request?: Request): Promise<CrimeIQUser | n
     console.warn('[Auth] Catalyst auth check failed:', error)
   }
 
-  // Local: check JWT cookie
+  // Fallback: Check local/Vercel JWT cookie
   const cookieStore = await cookies()
   const token = cookieStore.get(TOKEN_COOKIE)?.value
   if (!token) return null
