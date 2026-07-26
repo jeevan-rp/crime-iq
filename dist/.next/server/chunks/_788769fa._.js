@@ -1,0 +1,3 @@
+module.exports=[95885,e=>{"use strict";let r=null;async function t(){if(r)return r;try{return r=(await e.A(78803)).initialize()}catch(e){return console.warn("[Catalyst SDK] SDK not initialized (running locally/outside AppSail). Services will run in local mode."),null}}e.s(["getCatalystApp",()=>t])},78803,e=>{e.v(r=>Promise.all(["server/chunks/[root-of-the-server]__d8366751._.js","server/chunks/[root-of-the-server]__a070fc8e._.js"].map(r=>e.l(r))).then(()=>r(28842)))}];
+
+//# sourceMappingURL=_788769fa._.js.map

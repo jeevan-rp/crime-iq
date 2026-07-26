@@ -1,0 +1,18 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/auth/login/route": "/api/auth/login",
+  "/api/auth/logout/route": "/api/auth/logout",
+  "/api/auth/me/route": "/api/auth/me",
+  "/api/chat/route": "/api/chat",
+  "/api/dashboard/route": "/api/dashboard",
+  "/api/firs/[id]/route": "/api/firs/[id]",
+  "/api/firs/route": "/api/firs",
+  "/api/map/route": "/api/map",
+  "/api/network/route": "/api/network",
+  "/api/notifications/alert/route": "/api/notifications/alert",
+  "/api/predictions/route": "/api/predictions",
+  "/api/reports/route": "/api/reports",
+  "/api/route": "/api",
+  "/page": "/"
+}

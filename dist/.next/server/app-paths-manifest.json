@@ -1,0 +1,18 @@
+{
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/auth/login/route": "app/api/auth/login/route.js",
+  "/api/auth/logout/route": "app/api/auth/logout/route.js",
+  "/api/auth/me/route": "app/api/auth/me/route.js",
+  "/api/chat/route": "app/api/chat/route.js",
+  "/api/dashboard/route": "app/api/dashboard/route.js",
+  "/api/firs/[id]/route": "app/api/firs/[id]/route.js",
+  "/api/firs/route": "app/api/firs/route.js",
+  "/api/map/route": "app/api/map/route.js",
+  "/api/network/route": "app/api/network/route.js",
+  "/api/notifications/alert/route": "app/api/notifications/alert/route.js",
+  "/api/predictions/route": "app/api/predictions/route.js",
+  "/api/reports/route": "app/api/reports/route.js",
+  "/api/route": "app/api/route.js",
+  "/page": "app/page.js"
+}

@@ -1,7 +1,7 @@
 {
   "appsail": [
     {
-      "source": "appsail-nodejs",
+      "source": ".",
       "name": "crimeiqdash"
     }
   ]
